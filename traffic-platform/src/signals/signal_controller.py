@@ -1,8 +1,3 @@
-"""
-Traffic Signal Controller Module
-Manages traffic signal timing and emergency overrides
-"""
-
 import os
 import logging
 import redis
