@@ -1,0 +1,13 @@
+{
+  "name": "@local-lens/auth-service",
+  "version": "1.0.0",
+  "description": "Authentication service for Local Lens",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "test": "jest"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

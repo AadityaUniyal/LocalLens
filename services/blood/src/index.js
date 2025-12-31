@@ -1,0 +1,1 @@
+// Blood Platform Service Entry Point

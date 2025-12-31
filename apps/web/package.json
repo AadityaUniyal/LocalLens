@@ -1,0 +1,12 @@
+{
+  "name": "@local-lens/web",
+  "version": "1.0.0",
+  "description": "Web frontend application",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

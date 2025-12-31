@@ -1,0 +1,1 @@
+-- Architecture platform database initialization

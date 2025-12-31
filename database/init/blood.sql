@@ -1,0 +1,1 @@
+-- Blood platform database initialization

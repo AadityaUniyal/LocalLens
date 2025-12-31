@@ -1,0 +1,1 @@
+// Architecture Platform Service Entry Point

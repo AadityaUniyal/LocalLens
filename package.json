@@ -1,0 +1,26 @@
+{
+  "name": "local-lens",
+  "version": "1.0.0",
+  "description": "Local Lens Multi-Platform System",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "shared/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:auth\" \"npm run dev:blood\" \"npm run dev:complaint\" \"npm run dev:architecture\" \"npm run dev:traffic\"",
+    "dev:auth": "cd services/auth && npm run dev",
+    "dev:blood": "cd services/blood && npm run dev",
+    "dev:complaint": "cd services/complaint && npm run dev",
+    "dev:architecture": "cd services/architecture && npm run dev",
+    "dev:traffic": "cd services/traffic && npm run dev",
+    "test": "npm run test --workspaces",
+    "build": "npm run build --workspaces",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

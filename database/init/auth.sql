@@ -1,0 +1,1 @@
+-- Authentication database initialization

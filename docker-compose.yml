@@ -1,0 +1,179 @@
+version: '3.8'
+
+services:
+  # PostgreSQL databases for each platform
+  auth-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: local_lens_auth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+      - ./database/init/auth.sql:/docker-entrypoint-initdb.d/init.sql
+
+  blood-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: local_lens_blood
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - blood_db_data:/var/lib/postgresql/data
+      - ./database/init/blood.sql:/docker-entrypoint-initdb.d/init.sql
+
+  complaint-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: local_lens_complaint
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - complaint_db_data:/var/lib/postgresql/data
+      - ./database/init/complaint.sql:/docker-entrypoint-initdb.d/init.sql
+
+  architecture-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: local_lens_architecture
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - architecture_db_data:/var/lib/postgresql/data
+      - ./database/init/architecture.sql:/docker-entrypoint-initdb.d/init.sql
+
+  traffic-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: local_lens_traffic
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - traffic_db_data:/var/lib/postgresql/data
+      - ./database/init/traffic.sql:/docker-entrypoint-initdb.d/init.sql
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # Authentication Service
+  auth-service:
+    build:
+      context: ./services/auth
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@auth-db:5432/local_lens_auth
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+    depends_on:
+      - auth-db
+      - redis
+    volumes:
+      - ./services/auth:/app
+      - /app/node_modules
+
+  # Blood Platform Service
+  blood-service:
+    build:
+      context: ./services/blood
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@blood-db:5432/local_lens_blood
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth-service:3000
+    depends_on:
+      - blood-db
+      - redis
+      - auth-service
+    volumes:
+      - ./services/blood:/app
+      - /app/node_modules
+
+  # Complaint Platform Service
+  complaint-service:
+    build:
+      context: ./services/complaint
+      dockerfile: Dockerfile
+    ports:
+      - "3003:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@complaint-db:5432/local_lens_complaint
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth-service:3000
+    depends_on:
+      - complaint-db
+      - redis
+      - auth-service
+    volumes:
+      - ./services/complaint:/app
+      - /app/node_modules
+
+  # Architecture Platform Service
+  architecture-service:
+    build:
+      context: ./services/architecture
+      dockerfile: Dockerfile
+    ports:
+      - "3004:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@architecture-db:5432/local_lens_architecture
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth-service:3000
+    depends_on:
+      - architecture-db
+      - redis
+      - auth-service
+    volumes:
+      - ./services/architecture:/app
+      - /app/node_modules
+
+  # Traffic Platform Service
+  traffic-service:
+    build:
+      context: ./services/traffic
+      dockerfile: Dockerfile
+    ports:
+      - "3005:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@traffic-db:5432/local_lens_traffic
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth-service:3000
+    depends_on:
+      - traffic-db
+      - redis
+      - auth-service
+    volumes:
+      - ./services/traffic:/app
+      - /app/node_modules
+
+volumes:
+  auth_db_data:
+  blood_db_data:
+  complaint_db_data:
+  architecture_db_data:
+  traffic_db_data:
+  redis_data:

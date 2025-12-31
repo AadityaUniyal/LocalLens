@@ -1,0 +1,13 @@
+{
+  "name": "@local-lens/blood-service",
+  "version": "1.0.0",
+  "description": "Blood donation platform service",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "test": "jest"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

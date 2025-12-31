@@ -1,0 +1,13 @@
+{
+  "name": "@local-lens/traffic-service",
+  "version": "1.0.0",
+  "description": "Traffic management service",
+  "main": "src/index.py",
+  "scripts": {
+    "dev": "python src/index.py",
+    "start": "python src/index.py",
+    "test": "pytest"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
