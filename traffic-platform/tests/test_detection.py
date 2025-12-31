@@ -1,8 +1,3 @@
-"""
-Comprehensive tests for Traffic Management Platform
-Tests emergency vehicle detection, signal control, and route optimization
-"""
-
 import pytest
 import numpy as np
 from unittest.mock import Mock, patch, MagicMock
