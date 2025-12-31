@@ -14,6 +14,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
+*.log
 
 # Runtime data
 pids
@@ -65,3 +66,32 @@ venv.bak/
 
 # Kiro specs (development artifacts)
 .kiro/
+
+# Temporary and development files (DO NOT COMMIT)
+*.tmp
+*.temp
+*SUMMARY*.md
+*TODO*.md
+*NOTES*.md
+*_TEMP*
+*_temp*
+TEMP_*
+temp_*
+.hypothesis/
+.pytest_cache/
+*.cache
+.cache/
+
+# Package manager locks (keep package-lock.json but ignore others)
+yarn.lock
+pnpm-lock.yaml
+
+# Editor temporary files
+*~
+.#*
+\#*#
+
+# Backup files
+*.bak
+*.backup
+*.orig
