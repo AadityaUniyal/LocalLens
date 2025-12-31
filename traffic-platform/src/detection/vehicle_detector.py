@@ -1,0 +1,1 @@
+# Emergency vehicle detection using YOLOv8 and OpenCV

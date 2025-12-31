@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  auth-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: local_lens_auth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  auth-service:
+    build: .
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@auth-db:5432/local_lens_auth
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+    depends_on:
+      - auth-db
+      - redis
+
+volumes:
+  auth_db_data:
+  redis_data:

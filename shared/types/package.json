@@ -1,7 +1,0 @@
-{
-  "name": "@local-lens/types",
-  "version": "1.0.0",
-  "description": "Shared TypeScript types",
-  "main": "index.js",
-  "types": "index.d.ts"
-}

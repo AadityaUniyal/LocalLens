@@ -12,7 +12,6 @@ services:
       - "5432:5432"
     volumes:
       - auth_db_data:/var/lib/postgresql/data
-      - ./database/init/auth.sql:/docker-entrypoint-initdb.d/init.sql
 
   blood-db:
     image: postgres:15
@@ -24,7 +23,6 @@ services:
       - "5433:5432"
     volumes:
       - blood_db_data:/var/lib/postgresql/data
-      - ./database/init/blood.sql:/docker-entrypoint-initdb.d/init.sql
 
   complaint-db:
     image: postgres:15
@@ -36,7 +34,6 @@ services:
       - "5434:5432"
     volumes:
       - complaint_db_data:/var/lib/postgresql/data
-      - ./database/init/complaint.sql:/docker-entrypoint-initdb.d/init.sql
 
   architecture-db:
     image: postgres:15
@@ -48,7 +45,6 @@ services:
       - "5435:5432"
     volumes:
       - architecture_db_data:/var/lib/postgresql/data
-      - ./database/init/architecture.sql:/docker-entrypoint-initdb.d/init.sql
 
   traffic-db:
     image: postgres:15
@@ -60,7 +56,6 @@ services:
       - "5436:5432"
     volumes:
       - traffic_db_data:/var/lib/postgresql/data
-      - ./database/init/traffic.sql:/docker-entrypoint-initdb.d/init.sql
 
   # Redis for caching and session management
   redis:
@@ -73,9 +68,7 @@ services:
 
   # Authentication Service
   auth-service:
-    build:
-      context: ./services/auth
-      dockerfile: Dockerfile
+    build: ./auth-service
     ports:
       - "3001:3000"
     environment:
@@ -86,15 +79,10 @@ services:
     depends_on:
       - auth-db
       - redis
-    volumes:
-      - ./services/auth:/app
-      - /app/node_modules
 
   # Blood Platform Service
   blood-service:
-    build:
-      context: ./services/blood
-      dockerfile: Dockerfile
+    build: ./blood-platform
     ports:
       - "3002:3000"
     environment:
@@ -106,15 +94,10 @@ services:
       - blood-db
       - redis
       - auth-service
-    volumes:
-      - ./services/blood:/app
-      - /app/node_modules
 
   # Complaint Platform Service
   complaint-service:
-    build:
-      context: ./services/complaint
-      dockerfile: Dockerfile
+    build: ./complaint-platform
     ports:
       - "3003:3000"
     environment:
@@ -126,15 +109,10 @@ services:
       - complaint-db
       - redis
       - auth-service
-    volumes:
-      - ./services/complaint:/app
-      - /app/node_modules
 
   # Architecture Platform Service
   architecture-service:
-    build:
-      context: ./services/architecture
-      dockerfile: Dockerfile
+    build: ./architecture-platform
     ports:
       - "3004:3000"
     environment:
@@ -146,19 +124,14 @@ services:
       - architecture-db
       - redis
       - auth-service
-    volumes:
-      - ./services/architecture:/app
-      - /app/node_modules
 
   # Traffic Platform Service
   traffic-service:
-    build:
-      context: ./services/traffic
-      dockerfile: Dockerfile
+    build: ./traffic-platform
     ports:
-      - "3005:3000"
+      - "3005:5000"
     environment:
-      - NODE_ENV=development
+      - FLASK_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@traffic-db:5432/local_lens_traffic
       - REDIS_URL=redis://redis:6379
       - AUTH_SERVICE_URL=http://auth-service:3000
@@ -166,9 +139,24 @@ services:
       - traffic-db
       - redis
       - auth-service
-    volumes:
-      - ./services/traffic:/app
-      - /app/node_modules
+
+  # Web Frontend
+  web-frontend:
+    build: ./web-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_AUTH_SERVICE_URL=http://localhost:3001
+      - NEXT_PUBLIC_BLOOD_SERVICE_URL=http://localhost:3002
+      - NEXT_PUBLIC_COMPLAINT_SERVICE_URL=http://localhost:3003
+      - NEXT_PUBLIC_ARCHITECTURE_SERVICE_URL=http://localhost:3004
+      - NEXT_PUBLIC_TRAFFIC_SERVICE_URL=http://localhost:3005
+    depends_on:
+      - auth-service
+      - blood-service
+      - complaint-service
+      - architecture-service
+      - traffic-service
 
 volumes:
   auth_db_data:

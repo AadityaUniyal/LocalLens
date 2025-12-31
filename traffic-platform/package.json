@@ -1,0 +1,14 @@
+{
+  "name": "local-lens-traffic-platform",
+  "version": "1.0.0",
+  "description": "Intelligent traffic management system with AI-powered emergency vehicle detection",
+  "main": "src/main.py",
+  "scripts": {
+    "dev": "python src/main.py",
+    "start": "python src/main.py",
+    "test": "pytest tests/",
+    "install": "pip install -r requirements.txt",
+    "docker:build": "docker build -t local-lens-traffic .",
+    "docker:run": "docker run -p 3005:5000 local-lens-traffic"
+  }
+}

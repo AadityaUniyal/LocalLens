@@ -1,1 +1,0 @@
--- Complaint platform database initialization
