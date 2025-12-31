@@ -1,6 +1,3 @@
--- Traffic Management Platform Database Initialization
--- This script sets up the database schema for the traffic management system
-
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
