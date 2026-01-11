@@ -118,7 +118,7 @@ EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================
 -- Seed Data (Sample Complaints)
--- ==========================
+-- =========================
 INSERT INTO complaints
 (citizen_name, citizen_contact, category, description, address, priority)
 VALUES
