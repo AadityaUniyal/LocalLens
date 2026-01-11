@@ -271,7 +271,7 @@ describe('Blood Platform Tests', () => {
             it('should return shorter time when many donors available', () => {
                 const time = matchingService.calculateEstimatedResponseTime('medium', 15);
                 expect(time).to.be.lessThan(300);
-            });
+            })
         });
     });
 
