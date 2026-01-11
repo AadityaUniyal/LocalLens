@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "test": "jest",
-    "build": "echo 'Build complete'",
+    "test": "jest --runInBand",
+    "build": "echo \"Build complete\"",
     "docker:build": "docker build -t local-lens-blood .",
     "docker:run": "docker run -p 3002:3000 local-lens-blood"
   },
@@ -27,5 +27,8 @@
     "jest": "^29.6.2",
     "supertest": "^6.3.3",
     "fast-check": "^3.12.0"
+  },
+  "jest": {
+    "testEnvironment": "node"
   }
 }
