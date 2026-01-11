@@ -1,145 +1,33 @@
 /**
  * Database Configuration and Management
- * Handles PostgreSQL connections and user operations
+ * Handles PostgreSQL connections and user operations using schema-based separation
  */
 
-const { Pool } = require('pg');
+const { NeonDatabaseManager } = require('../../../shared/database/neon-config');
 
-class DatabaseManager {
+class DatabaseManager extends NeonDatabaseManager {
     constructor() {
-        this.pool = new Pool({
-            connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/local_lens_auth',
+        // Initialize with auth-service for schema-based separation
+        super('auth-service', {
             max: 20,
             idleTimeoutMillis: 30000,
             connectionTimeoutMillis: 2000,
         });
-
-        this.pool.on('error', (err) => {
-            console.error('Unexpected error on idle client', err);
-        });
+        
+        console.log('🔐 Auth Service using Neon main branch with auth schema');
     }
 
     /**
-     * Initialize database tables
+     * Initialize database tables (now handled by migrations)
      */
     async initialize() {
-        const client = await this.pool.connect();
-        
         try {
-            // Create users table
-            await client.query(`
-                CREATE TABLE IF NOT EXISTS users (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    email VARCHAR(255) UNIQUE NOT NULL,
-                    password_hash VARCHAR(255) NOT NULL,
-                    name VARCHAR(255) NOT NULL,
-                    role VARCHAR(50) DEFAULT 'citizen',
-                    phone VARCHAR(20),
-                    location JSONB,
-                    platforms_access TEXT[] DEFAULT ARRAY['basic'],
-                    email_verified BOOLEAN DEFAULT FALSE,
-                    is_active BOOLEAN DEFAULT TRUE,
-                    last_login TIMESTAMP,
-                    password_changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            `);
-
-            // Create user sessions table
-            await client.query(`
-                CREATE TABLE IF NOT EXISTS user_sessions (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-                    session_token VARCHAR(255) NOT NULL,
-                    ip_address INET,
-                    user_agent TEXT,
-                    expires_at TIMESTAMP NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            `);
-
-            // Create user activities table for audit logging
-            await client.query(`
-                CREATE TABLE IF NOT EXISTS user_activities (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-                    activity_type VARCHAR(50) NOT NULL,
-                    activity_data JSONB,
-                    ip_address INET,
-                    user_agent TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            `);
-
-            // Create password reset tokens table
-            await client.query(`
-                CREATE TABLE IF NOT EXISTS password_reset_tokens (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-                    token VARCHAR(255) UNIQUE NOT NULL,
-                    expires_at TIMESTAMP NOT NULL,
-                    used BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            `);
-
-            // Create indexes for better performance
-            await client.query(`
-                CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-                CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-                CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
-                CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
-                CREATE INDEX IF NOT EXISTS idx_user_activities_user_id ON user_activities(user_id);
-                CREATE INDEX IF NOT EXISTS idx_user_activities_created_at ON user_activities(created_at);
-                CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
-                CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
-            `);
-
-            // Create trigger to update updated_at timestamp
-            await client.query(`
-                CREATE OR REPLACE FUNCTION update_updated_at_column()
-                RETURNS TRIGGER AS $$
-                BEGIN
-                    NEW.updated_at = CURRENT_TIMESTAMP;
-                    RETURN NEW;
-                END;
-                $$ language 'plpgsql';
-
-                DROP TRIGGER IF EXISTS update_users_updated_at ON users;
-                CREATE TRIGGER update_users_updated_at
-                    BEFORE UPDATE ON users
-                    FOR EACH ROW
-                    EXECUTE FUNCTION update_updated_at_column();
-            `);
-
-            // Insert default admin user if not exists
-            const adminExists = await client.query(
-                'SELECT id FROM users WHERE email = $1',
-                ['admin@locallens.com']
-            );
-
-            if (adminExists.rows.length === 0) {
-                const bcrypt = require('bcryptjs');
-                const adminPassword = await bcrypt.hash('Admin@123456', 12);
-                
-                await client.query(`
-                    INSERT INTO users (email, password_hash, name, role, platforms_access, email_verified)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                `, [
-                    'admin@locallens.com',
-                    adminPassword,
-                    'System Administrator',
-                    'admin',
-                    ['all'],
-                    true
-                ]);
-            }
-
-            console.log('Database initialized successfully');
-
-        } finally {
-            client.release();
+            await super.initialize();
+            console.log('✅ Auth Service database initialized with Neon auth schema');
+            return true;
+        } catch (error) {
+            console.error('❌ Auth Service database initialization failed:', error.message);
+            throw error;
         }
     }
 
@@ -154,26 +42,28 @@ class DatabaseManager {
             role,
             phone,
             location,
-            platforms_access
+            platform_access,
+            permissions
         } = userData;
 
         const query = `
-            INSERT INTO users (email, password_hash, name, role, phone, location, platforms_access)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id, email, name, role, phone, location, platforms_access, created_at
+            INSERT INTO users (email, password_hash, name, role, phone, location, platform_access, permissions)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id, email, name, role, phone, location, platform_access, permissions, created_at
         `;
 
         const values = [
             email,
             password_hash,
             name,
-            role,
+            role || 'citizen',
             phone,
-            location,
-            platforms_access
+            location ? JSON.stringify(location) : null,
+            platform_access || ['basic'],
+            permissions || []
         ];
 
-        const result = await this.pool.query(query, values);
+        const result = await this.query(query, values);
         return result.rows[0];
     }
 
@@ -183,12 +73,13 @@ class DatabaseManager {
     async getUserByEmail(email) {
         const query = `
             SELECT id, email, password_hash, name, role, phone, location, 
-                   platforms_access, email_verified, is_active, last_login, created_at
+                   platform_access, permissions, email_verified, is_active, last_login, created_at,
+                   mfa_enabled, mfa_secret, mfa_method, backup_codes
             FROM users 
             WHERE email = $1 AND is_active = TRUE
         `;
 
-        const result = await this.pool.query(query, [email]);
+        const result = await this.query(query, [email]);
         return result.rows[0];
     }
 
@@ -198,12 +89,13 @@ class DatabaseManager {
     async getUserById(userId) {
         const query = `
             SELECT id, email, name, role, phone, location, 
-                   platforms_access, email_verified, is_active, last_login, created_at
+                   platform_access, permissions, email_verified, is_active, last_login, created_at,
+                   mfa_enabled, mfa_secret, mfa_method, backup_codes
             FROM users 
             WHERE id = $1 AND is_active = TRUE
         `;
 
-        const result = await this.pool.query(query, [userId]);
+        const result = await this.query(query, [userId]);
         return result.rows[0];
     }
 
@@ -212,9 +104,10 @@ class DatabaseManager {
      */
     async updateUser(userId, updates) {
         const allowedFields = [
-            'name', 'phone', 'location', 'platforms_access', 
+            'name', 'phone', 'location', 'platform_access', 'permissions',
             'email_verified', 'is_active', 'last_login', 
-            'password_hash', 'password_changed_at', 'role'
+            'password_hash', 'password_changed_at', 'role',
+            'mfa_enabled', 'mfa_secret', 'mfa_method', 'backup_codes'
         ];
 
         const updateFields = [];
@@ -239,10 +132,10 @@ class DatabaseManager {
             UPDATE users 
             SET ${updateFields.join(', ')}
             WHERE id = $${paramCount}
-            RETURNING id, email, name, role, phone, location, platforms_access, updated_at
+            RETURNING id, email, name, role, phone, location, platform_access, permissions, updated_at
         `;
 
-        const result = await this.pool.query(query, values);
+        const result = await this.query(query, values);
         return result.rows[0];
     }
 
@@ -284,12 +177,12 @@ class DatabaseManager {
             WHERE ${whereClause}
         `;
 
-        const countResult = await this.pool.query(countQuery, values);
+        const countResult = await this.query(countQuery, values);
         const total = parseInt(countResult.rows[0].total);
 
         // Get users
         const query = `
-            SELECT id, email, name, role, phone, platforms_access, 
+            SELECT id, email, name, role, phone, platform_access, permissions,
                    email_verified, is_active, last_login, created_at
             FROM users
             WHERE ${whereClause}
@@ -299,7 +192,7 @@ class DatabaseManager {
 
         values.push(limit, offset);
 
-        const result = await this.pool.query(query, values);
+        const result = await this.query(query, values);
 
         return {
             data: result.rows,
@@ -313,12 +206,59 @@ class DatabaseManager {
     }
 
     /**
+     * Create user session
+     */
+    async createSession(sessionData) {
+        const query = `
+            INSERT INTO user_sessions (user_id, session_token, refresh_token, ip_address, user_agent, expires_at, refresh_expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, session_token, expires_at, created_at
+        `;
+
+        const values = [
+            sessionData.user_id,
+            sessionData.session_token,
+            sessionData.refresh_token,
+            sessionData.ip_address,
+            sessionData.user_agent,
+            sessionData.expires_at,
+            sessionData.refresh_expires_at
+        ];
+
+        const result = await this.query(query, values);
+        return result.rows[0];
+    }
+
+    /**
+     * Get session by token
+     */
+    async getSessionByToken(sessionToken) {
+        const query = `
+            SELECT s.*, u.id as user_id, u.email, u.name, u.role, u.platform_access, u.permissions
+            FROM user_sessions s
+            JOIN users u ON s.user_id = u.id
+            WHERE s.session_token = $1 AND s.expires_at > CURRENT_TIMESTAMP AND u.is_active = TRUE
+        `;
+
+        const result = await this.query(query, [sessionToken]);
+        return result.rows[0];
+    }
+
+    /**
+     * Delete session
+     */
+    async deleteSession(sessionToken) {
+        const query = 'DELETE FROM user_sessions WHERE session_token = $1';
+        await this.query(query, [sessionToken]);
+    }
+
+    /**
      * Log user activity
      */
-    async logUserActivity(userId, activityType, activityData = {}, ipAddress = null, userAgent = null) {
+    async logUserActivity(userId, activityType, activityData = {}, ipAddress = null, userAgent = null, platform = null) {
         const query = `
-            INSERT INTO user_activities (user_id, activity_type, activity_data, ip_address, user_agent)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO user_activities (user_id, activity_type, activity_data, ip_address, user_agent, platform)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id, created_at
         `;
 
@@ -327,10 +267,11 @@ class DatabaseManager {
             activityType,
             JSON.stringify(activityData),
             ipAddress,
-            userAgent
+            userAgent,
+            platform
         ];
 
-        const result = await this.pool.query(query, values);
+        const result = await this.query(query, values);
         return result.rows[0];
     }
 
@@ -341,7 +282,8 @@ class DatabaseManager {
         const {
             page = 1,
             limit = 50,
-            activityType
+            activityType,
+            platform
         } = options;
 
         const offset = (page - 1) * limit;
@@ -355,10 +297,16 @@ class DatabaseManager {
             paramCount++;
         }
 
+        if (platform) {
+            whereConditions.push(`platform = $${paramCount}`);
+            values.push(platform);
+            paramCount++;
+        }
+
         const whereClause = whereConditions.join(' AND ');
 
         const query = `
-            SELECT activity_type, activity_data, ip_address, user_agent, created_at
+            SELECT activity_type, activity_data, ip_address, user_agent, platform, success, error_message, created_at
             FROM user_activities
             WHERE ${whereClause}
             ORDER BY created_at DESC
@@ -367,39 +315,63 @@ class DatabaseManager {
 
         values.push(limit, offset);
 
-        const result = await this.pool.query(query, values);
+        const result = await this.query(query, values);
         return result.rows;
+    }
+
+    /**
+     * Create password reset token
+     */
+    async createPasswordResetToken(userId, token, expiresAt) {
+        const query = `
+            INSERT INTO password_reset_tokens (user_id, token, expires_at)
+            VALUES ($1, $2, $3)
+            RETURNING id, token, created_at
+        `;
+
+        const result = await this.query(query, [userId, token, expiresAt]);
+        return result.rows[0];
+    }
+
+    /**
+     * Get password reset token
+     */
+    async getPasswordResetToken(token) {
+        const query = `
+            SELECT prt.*, u.email, u.name
+            FROM password_reset_tokens prt
+            JOIN users u ON prt.user_id = u.id
+            WHERE prt.token = $1 AND prt.expires_at > CURRENT_TIMESTAMP AND prt.used = FALSE
+        `;
+
+        const result = await this.query(query, [token]);
+        return result.rows[0];
+    }
+
+    /**
+     * Mark password reset token as used
+     */
+    async markPasswordResetTokenUsed(token) {
+        const query = `
+            UPDATE password_reset_tokens 
+            SET used = TRUE, used_at = CURRENT_TIMESTAMP
+            WHERE token = $1
+        `;
+
+        await this.query(query, [token]);
     }
 
     /**
      * Clean up expired sessions and tokens
      */
     async cleanupExpiredData() {
-        const client = await this.pool.connect();
-        
-        try {
-            await client.query('BEGIN');
+        const queries = [
+            'DELETE FROM user_sessions WHERE expires_at < CURRENT_TIMESTAMP',
+            'DELETE FROM password_reset_tokens WHERE expires_at < CURRENT_TIMESTAMP',
+            `DELETE FROM user_activities WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '90 days'`
+        ];
 
-            // Clean up expired sessions
-            await client.query('DELETE FROM user_sessions WHERE expires_at < CURRENT_TIMESTAMP');
-
-            // Clean up expired password reset tokens
-            await client.query('DELETE FROM password_reset_tokens WHERE expires_at < CURRENT_TIMESTAMP');
-
-            // Clean up old user activities (keep last 90 days)
-            await client.query(`
-                DELETE FROM user_activities 
-                WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '90 days'
-            `);
-
-            await client.query('COMMIT');
-
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-        } finally {
-            client.release();
-        }
+        await this.transaction(queries.map(text => ({ text, params: [] })));
     }
 
     /**
@@ -433,7 +405,7 @@ class DatabaseManager {
         ];
 
         const results = await Promise.all(
-            queries.map(query => this.pool.query(query))
+            queries.map(query => this.query(query))
         );
 
         return {
@@ -443,13 +415,6 @@ class DatabaseManager {
             daily_registrations: results[3].rows,
             daily_logins: results[4].rows
         };
-    }
-
-    /**
-     * Close database connections
-     */
-    async close() {
-        await this.pool.end();
     }
 }
 

@@ -1,0 +1,30 @@
+{
+  "name": "@local-lens/shared-database",
+  "version": "1.0.0",
+  "description": "Shared Neon database configuration and branch management for Local Lens platforms",
+  "main": "neon-config.js",
+  "scripts": {
+    "migrate": "node migrate.js migrate",
+    "migrate:status": "node migrate.js status",
+    "migrate:test": "node migrate.js test"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "sqlite3": "^5.1.6"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "neon",
+    "postgresql",
+    "database",
+    "branch-isolation",
+    "local-lens"
+  ],
+  "author": "Local Lens Team",
+  "license": "MIT"
+}

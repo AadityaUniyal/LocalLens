@@ -1008,30 +1008,6 @@ export default function TrafficDashboard() {
                   Platform Under Development
                 </button>
               </div>
-
-              {/* Architecture Platform */}
-              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg p-6 text-white">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="text-3xl">🏗️</div>
-                  <span className="bg-purple-400 bg-opacity-30 px-3 py-1 rounded-full text-sm">Coming Soon</span>
-                </div>
-                <h3 className="text-xl font-bold mb-3">Architecture Platform</h3>
-                <p className="text-purple-100 mb-4">
-                  Scalable application framework with DevOps integration and production-ready templates.
-                </p>
-                <div className="space-y-2 text-sm text-purple-100">
-                  <div>• Project template generator</div>
-                  <div>• DevOps pipeline automation</div>
-                  <div>• Cloud deployment tools</div>
-                  <div>• Monitoring & analytics</div>
-                </div>
-                <button 
-                  className="mt-4 w-full bg-white bg-opacity-20 text-white py-2 px-4 rounded-lg cursor-not-allowed"
-                  disabled
-                >
-                  Platform Under Development
-                </button>
-              </div>
             </div>
 
             {/* Integration Status */}
@@ -1056,13 +1032,6 @@ export default function TrafficDashboard() {
                   <div className="flex items-center space-x-3">
                     <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
                     <span className="font-medium">Complaint Management</span>
-                  </div>
-                  <span className="text-yellow-600 font-medium">⏳ In Development</span>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-yellow-50 rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                    <span className="font-medium">Architecture Platform</span>
                   </div>
                   <span className="text-yellow-600 font-medium">⏳ In Development</span>
                 </div>

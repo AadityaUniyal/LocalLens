@@ -3,10 +3,12 @@
  * Core business logic for complaint handling and processing
  */
 
-const { calculateDistance } = require('../utils/helpers');
+const { calculateDistance, generateComplaintId } = require('../utils/helpers');
+const DatabaseManager = require('../config/database');
 
 class ComplaintService {
     constructor() {
+        this.db = new DatabaseManager();
         this.priorityWeights = {
             'urgent': 1,
             'high': 3,
@@ -23,12 +25,16 @@ class ComplaintService {
             'electricity': 1,
             'public_safety': 1,
             'environment': 10,
+            'healthcare': 5,
+            'education': 10,
+            'corruption': 21,
             'other': 7
         };
     }
 
     async initialize() {
-        console.log('ComplaintService initialized');
+        await this.db.initialize();
+        console.log('ComplaintService initialized with database connection');
     }
 
     /**
@@ -36,19 +42,42 @@ class ComplaintService {
      */
     async createComplaint(complaintData) {
         try {
+            // Generate unique complaint ID if not provided
+            if (!complaintData.complaint_id) {
+                complaintData.complaint_id = generateComplaintId();
+            }
+
+            // Calculate priority if not provided
+            if (!complaintData.priority) {
+                complaintData.priority = this.calculatePriority(complaintData);
+            }
+
+            // Calculate urgency score
+            complaintData.urgency_score = this.calculateUrgencyScore(complaintData);
+
             // Set default values
             const complaint = {
                 ...complaintData,
                 status: 'filed',
-                priority: complaintData.priority || this.calculatePriority(complaintData),
-                created_at: new Date(),
-                updated_at: new Date()
+                escalation_level: 0,
+                public_visibility: complaintData.public_visibility !== false,
+                source: complaintData.source || 'web'
             };
 
-            // This would typically save to database
-            console.log('Complaint created:', complaint.complaint_id);
+            // Save to database
+            const createdComplaint = await this.db.createComplaint(complaint);
             
-            return complaint;
+            // Log status change
+            await this.db.logStatusChange(
+                complaint.complaint_id, 
+                null, 
+                'filed', 
+                'system', 
+                'Initial complaint filing'
+            );
+
+            console.log('Complaint created:', createdComplaint.complaint_id);
+            return createdComplaint;
 
         } catch (error) {
             console.error('Error creating complaint:', error);
@@ -61,21 +90,19 @@ class ComplaintService {
      */
     async getComplaintById(complaintId) {
         try {
-            // This would query the database
-            // Mock implementation for now
-            return {
-                complaint_id: complaintId,
-                title: 'Sample Complaint',
-                description: 'Sample description',
-                category: 'infrastructure',
-                priority: 'medium',
-                status: 'filed',
-                location: { lat: 40.7128, lng: -74.0060 },
-                citizen_name: 'John Doe',
-                citizen_email: 'john@example.com',
-                created_at: new Date(),
-                updated_at: new Date()
-            };
+            const complaint = await this.db.getComplaintById(complaintId);
+            
+            if (complaint) {
+                // Parse JSON fields
+                complaint.location = typeof complaint.location === 'string' 
+                    ? JSON.parse(complaint.location) 
+                    : complaint.location;
+                complaint.attachments = typeof complaint.attachments === 'string' 
+                    ? JSON.parse(complaint.attachments) 
+                    : complaint.attachments;
+            }
+            
+            return complaint;
 
         } catch (error) {
             console.error('Error fetching complaint:', error);
@@ -88,19 +115,20 @@ class ComplaintService {
      */
     async getComplaints(filters = {}) {
         try {
-            // This would query the database with filters
-            // Mock implementation for now
-            const mockComplaints = [];
+            const result = await this.db.getComplaints(filters);
             
-            return {
-                data: mockComplaints,
-                pagination: {
-                    page: filters.page || 1,
-                    limit: filters.limit || 20,
-                    total: mockComplaints.length,
-                    pages: Math.ceil(mockComplaints.length / (filters.limit || 20))
-                }
-            };
+            // Parse JSON fields for each complaint
+            result.data = result.data.map(complaint => ({
+                ...complaint,
+                location: typeof complaint.location === 'string' 
+                    ? JSON.parse(complaint.location) 
+                    : complaint.location,
+                attachments: typeof complaint.attachments === 'string' 
+                    ? JSON.parse(complaint.attachments) 
+                    : complaint.attachments
+            }));
+            
+            return result;
 
         } catch (error) {
             console.error('Error fetching complaints:', error);
@@ -113,15 +141,30 @@ class ComplaintService {
      */
     async updateComplaintStatus(complaintId, updateData) {
         try {
-            // This would update the database
-            console.log(`Updating complaint ${complaintId} status to ${updateData.status}`);
-            
-            const updatedComplaint = {
-                complaint_id: complaintId,
-                ...updateData,
-                updated_at: new Date()
-            };
+            // Get current complaint to track status change
+            const currentComplaint = await this.getComplaintById(complaintId);
+            if (!currentComplaint) {
+                throw new Error('Complaint not found');
+            }
 
+            const oldStatus = currentComplaint.status;
+            
+            // Update complaint in database
+            const updatedComplaint = await this.db.updateComplaintStatus(complaintId, updateData);
+            
+            // Log status change
+            if (oldStatus !== updateData.status) {
+                await this.db.logStatusChange(
+                    complaintId,
+                    oldStatus,
+                    updateData.status,
+                    updateData.updated_by || 'system',
+                    updateData.change_reason || 'Status update',
+                    updateData.resolution_notes
+                );
+            }
+
+            console.log(`Complaint ${complaintId} status updated from ${oldStatus} to ${updateData.status}`);
             return updatedComplaint;
 
         } catch (error) {
@@ -135,13 +178,7 @@ class ComplaintService {
      */
     async addComment(complaintId, commentData) {
         try {
-            const comment = {
-                id: `comment_${Date.now()}`,
-                complaint_id: complaintId,
-                ...commentData,
-                created_at: new Date()
-            };
-
+            const comment = await this.db.addComment(complaintId, commentData);
             console.log(`Comment added to complaint ${complaintId}`);
             return comment;
 
@@ -156,18 +193,12 @@ class ComplaintService {
      */
     async getComplaintsByAuthority(authorityId, filters = {}) {
         try {
-            // This would query complaints assigned to specific authority
-            const mockComplaints = [];
-            
-            return {
-                data: mockComplaints,
-                pagination: {
-                    page: filters.page || 1,
-                    limit: filters.limit || 20,
-                    total: mockComplaints.length,
-                    pages: Math.ceil(mockComplaints.length / (filters.limit || 20))
-                }
+            const complaintFilters = {
+                ...filters,
+                authority_id: authorityId
             };
+            
+            return await this.getComplaints(complaintFilters);
 
         } catch (error) {
             console.error('Error fetching authority complaints:', error);
@@ -208,13 +239,7 @@ class ComplaintService {
      */
     async addFeedback(complaintId, feedbackData) {
         try {
-            const feedback = {
-                id: `feedback_${Date.now()}`,
-                complaint_id: complaintId,
-                ...feedbackData,
-                created_at: new Date()
-            };
-
+            const feedback = await this.db.addFeedback(complaintId, feedbackData);
             console.log(`Feedback added for complaint ${complaintId}`);
             return feedback;
 
@@ -233,12 +258,14 @@ class ComplaintService {
         // Keywords that indicate urgency
         const urgentKeywords = [
             'emergency', 'urgent', 'immediate', 'danger', 'hazard',
-            'accident', 'injury', 'fire', 'flood', 'gas leak'
+            'accident', 'injury', 'fire', 'flood', 'gas leak', 'collapse',
+            'explosion', 'death', 'serious', 'critical'
         ];
         
         const highKeywords = [
             'broken', 'damaged', 'not working', 'blocked', 'overflow',
-            'loud', 'disturbing', 'unsafe'
+            'loud', 'disturbing', 'unsafe', 'leaking', 'burst',
+            'overflowing', 'contaminated', 'polluted'
         ];
 
         const text = `${title} ${description}`.toLowerCase();
@@ -258,15 +285,61 @@ class ComplaintService {
             'public_safety': 'high',
             'water': 'high',
             'electricity': 'high',
+            'healthcare': 'high',
             'traffic': 'medium',
             'sanitation': 'medium',
             'infrastructure': 'medium',
+            'corruption': 'medium',
             'noise': 'low',
             'environment': 'low',
+            'education': 'low',
             'other': 'low'
         };
         
         return categoryPriorities[category] || 'medium';
+    }
+
+    /**
+     * Calculate urgency score for prioritization
+     */
+    calculateUrgencyScore(complaintData) {
+        let score = 0;
+        
+        // Priority-based scoring
+        const priorityScores = {
+            'urgent': 100,
+            'high': 75,
+            'medium': 50,
+            'low': 25
+        };
+        
+        score += priorityScores[complaintData.priority] || 50;
+        
+        // Category-based scoring
+        const categoryScores = {
+            'public_safety': 30,
+            'water': 25,
+            'electricity': 25,
+            'healthcare': 30,
+            'traffic': 20,
+            'sanitation': 15,
+            'infrastructure': 15,
+            'corruption': 10,
+            'noise': 5,
+            'environment': 10,
+            'education': 5,
+            'other': 0
+        };
+        
+        score += categoryScores[complaintData.category] || 0;
+        
+        // Keyword-based scoring
+        const text = `${complaintData.title} ${complaintData.description}`.toLowerCase();
+        const urgentKeywords = ['emergency', 'urgent', 'immediate', 'danger', 'critical'];
+        const urgentMatches = urgentKeywords.filter(keyword => text.includes(keyword)).length;
+        score += urgentMatches * 10;
+        
+        return Math.min(200, score); // Cap at 200
     }
 
     /**
@@ -370,17 +443,29 @@ class ComplaintService {
     /**
      * Escalate complaint if overdue
      */
-    async escalateComplaint(complaintId, reason) {
+    async escalateComplaint(complaintId, reason, escalatedBy = 'system') {
         try {
-            console.log(`Escalating complaint ${complaintId}: ${reason}`);
+            const complaint = await this.getComplaintById(complaintId);
+            if (!complaint) {
+                throw new Error('Complaint not found');
+            }
+
+            // Determine escalation target
+            const escalationTarget = await this.determineEscalationTarget(complaint);
             
-            // This would update the complaint status and notify higher authorities
-            return {
-                complaint_id: complaintId,
-                escalated: true,
-                escalation_reason: reason,
-                escalated_at: new Date()
+            const escalationData = {
+                escalated_from: complaint.assigned_authority_id,
+                escalated_to: escalationTarget.id,
+                reason: reason,
+                type: escalatedBy === 'system' ? 'automatic' : 'manual',
+                escalated_by: escalatedBy
             };
+
+            // Escalate in database
+            const escalatedComplaint = await this.db.escalateComplaint(complaintId, escalationData);
+            
+            console.log(`Complaint ${complaintId} escalated: ${reason}`);
+            return escalatedComplaint;
 
         } catch (error) {
             console.error('Error escalating complaint:', error);
@@ -389,15 +474,61 @@ class ComplaintService {
     }
 
     /**
-     * Check for overdue complaints
+     * Determine escalation target based on complaint and current authority
+     */
+    async determineEscalationTarget(complaint) {
+        try {
+            // Get current authority
+            const currentAuthority = complaint.assigned_authority_id 
+                ? await this.db.getAuthorityById(complaint.assigned_authority_id)
+                : null;
+
+            // If there's a supervisor, escalate to them
+            if (currentAuthority && currentAuthority.supervisor_id) {
+                return await this.db.getAuthorityById(currentAuthority.supervisor_id);
+            }
+
+            // Otherwise, escalate to district administration
+            const authorities = await this.db.getAuthorities({ type: 'district_administration' });
+            if (authorities.length > 0) {
+                return authorities[0];
+            }
+
+            // Fallback to municipal corporation
+            const fallbackAuthorities = await this.db.getAuthorities({ type: 'municipal_corporation' });
+            return fallbackAuthorities[0] || currentAuthority;
+
+        } catch (error) {
+            console.error('Error determining escalation target:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Check for overdue complaints and auto-escalate
      */
     async checkOverdueComplaints() {
         try {
-            // This would query for complaints past their estimated resolution time
-            const overdueComplaints = [];
+            // Get complaints that are past their estimated resolution date
+            const overdueQuery = `
+                SELECT * FROM complaints 
+                WHERE status IN ('filed', 'acknowledged', 'assigned', 'in_progress')
+                AND estimated_resolution_date < CURRENT_DATE
+                AND escalation_level < 2
+            `;
+            
+            const overdueComplaints = await this.db.getAnalyticsData(overdueQuery);
             
             for (const complaint of overdueComplaints) {
-                await this.escalateComplaint(complaint.complaint_id, 'Overdue resolution');
+                const daysPastDue = Math.floor(
+                    (new Date() - new Date(complaint.estimated_resolution_date)) / (1000 * 60 * 60 * 24)
+                );
+                
+                await this.escalateComplaint(
+                    complaint.complaint_id, 
+                    `Complaint overdue by ${daysPastDue} days`,
+                    'system'
+                );
             }
             
             return overdueComplaints;

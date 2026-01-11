@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Local Lens - Multi-Platform System',
-  description: 'Unified platform for Blood Donation, Complaint Management, Architecture Services, and Traffic Management',
+  description: 'Unified platform for Blood Donation, Complaint Management, and Traffic Management',
 }
 
 export default function RootLayout({

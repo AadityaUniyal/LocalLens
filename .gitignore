@@ -64,9 +64,6 @@ ENV/
 env.bak/
 venv.bak/
 
-# Kiro specs (development artifacts)
-.kiro/
-
 # Temporary and development files (DO NOT COMMIT)
 *.tmp
 *.temp

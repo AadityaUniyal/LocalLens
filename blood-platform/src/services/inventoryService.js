@@ -4,7 +4,8 @@
  */
 
 class InventoryService {
-    constructor() {
+    constructor(dbManager) {
+        this.dbManager = dbManager;
         this.bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
         this.expirationDays = 42; // Blood expires after 42 days
         this.lowStockThreshold = 5; // Alert when stock falls below 5 units
@@ -20,19 +21,38 @@ class InventoryService {
      */
     async getBloodBankInventory(bankId) {
         try {
-            // This would typically query the database
-            // Mock implementation for now
             const inventory = {};
             
+            // Get inventory for each blood type
             for (const bloodType of this.bloodTypes) {
+                const inventoryData = await this.dbManager.getBloodInventory(bankId, bloodType);
+                
+                const totalUnits = inventoryData.reduce((sum, item) => sum + item.units, 0);
+                const availableUnits = inventoryData
+                    .filter(item => item.status === 'available')
+                    .reduce((sum, item) => sum + item.units, 0);
+                const reservedUnits = inventoryData
+                    .filter(item => item.status === 'reserved')
+                    .reduce((sum, item) => sum + item.units, 0);
+                const expiredUnits = inventoryData
+                    .filter(item => item.status === 'expired')
+                    .reduce((sum, item) => sum + item.units, 0);
+                
+                // Calculate expiring soon (within 7 days)
+                const expiringDate = new Date();
+                expiringDate.setDate(expiringDate.getDate() + 7);
+                const expiringSoon = inventoryData
+                    .filter(item => item.status === 'available' && new Date(item.expiration_date) <= expiringDate)
+                    .reduce((sum, item) => sum + item.units, 0);
+
                 inventory[bloodType] = {
-                    total_units: Math.floor(Math.random() * 50),
-                    available_units: Math.floor(Math.random() * 40),
-                    reserved_units: Math.floor(Math.random() * 10),
-                    expired_units: Math.floor(Math.random() * 5),
-                    expiring_soon: Math.floor(Math.random() * 8), // Expiring in next 7 days
+                    total_units: totalUnits,
+                    available_units: availableUnits,
+                    reserved_units: reservedUnits,
+                    expired_units: expiredUnits,
+                    expiring_soon: expiringSoon,
                     last_updated: new Date().toISOString(),
-                    stock_status: this.getStockStatus(Math.floor(Math.random() * 40))
+                    stock_status: this.getStockStatus(availableUnits)
                 };
             }
 
@@ -53,12 +73,14 @@ class InventoryService {
     /**
      * Update inventory after donation
      */
-    async updateInventoryAfterDonation(bankId, bloodType, units, donationDate) {
+    async updateInventoryAfterDonation(bankId, bloodType, units, donationId) {
         try {
+            const donationDate = new Date();
             const expirationDate = new Date(donationDate);
             expirationDate.setDate(expirationDate.getDate() + this.expirationDays);
 
-            // This would update the database
+            const result = await this.dbManager.updateBloodInventory(bankId, bloodType, units, donationId);
+
             console.log(`Updated inventory: +${units} units of ${bloodType} at bank ${bankId}`);
             console.log(`Expiration date: ${expirationDate.toISOString()}`);
 
@@ -67,7 +89,8 @@ class InventoryService {
                 blood_type: bloodType,
                 units_added: units,
                 expiration_date: expirationDate,
-                updated_at: new Date().toISOString()
+                updated_at: new Date().toISOString(),
+                inventory_record: result
             };
 
         } catch (error) {
@@ -89,18 +112,34 @@ class InventoryService {
                 throw new Error(`Insufficient stock: ${available} units available, ${units} requested`);
             }
 
-            // Reserve units (would update database)
+            // Update inventory status to reserved
+            const query = `
+                UPDATE blood_inventory 
+                SET status = 'reserved', updated_at = CURRENT_TIMESTAMP
+                WHERE bank_id = $1 AND blood_type = $2 AND status = 'available'
+                AND id IN (
+                    SELECT id FROM blood_inventory 
+                    WHERE bank_id = $1 AND blood_type = $2 AND status = 'available'
+                    ORDER BY expiration_date ASC
+                    LIMIT $3
+                )
+                RETURNING *
+            `;
+
+            const result = await this.dbManager.query(query, [bankId, bloodType, units]);
+
             console.log(`Reserved ${units} units of ${bloodType} for request ${requestId}`);
 
             return {
                 success: true,
                 reservation_id: `RES_${Date.now()}`,
                 blood_type: bloodType,
-                units_reserved: units,
+                units_reserved: result.rows.length,
                 bank_id: bankId,
                 request_id: requestId,
                 reserved_at: new Date().toISOString(),
-                expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
+                expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours
+                reserved_items: result.rows
             };
 
         } catch (error) {
@@ -112,14 +151,30 @@ class InventoryService {
     /**
      * Release reserved blood units
      */
-    async releaseReservedUnits(reservationId) {
+    async releaseReservedUnits(reservationId, bankId, bloodType, units) {
         try {
-            // This would update the database to release reserved units
+            // Update inventory status back to available
+            const query = `
+                UPDATE blood_inventory 
+                SET status = 'available', updated_at = CURRENT_TIMESTAMP
+                WHERE bank_id = $1 AND blood_type = $2 AND status = 'reserved'
+                AND id IN (
+                    SELECT id FROM blood_inventory 
+                    WHERE bank_id = $1 AND blood_type = $2 AND status = 'reserved'
+                    ORDER BY expiration_date ASC
+                    LIMIT $3
+                )
+                RETURNING *
+            `;
+
+            const result = await this.dbManager.query(query, [bankId, bloodType, units]);
+
             console.log(`Released reservation ${reservationId}`);
 
             return {
                 success: true,
                 reservation_id: reservationId,
+                units_released: result.rows.length,
                 released_at: new Date().toISOString()
             };
 
@@ -134,16 +189,32 @@ class InventoryService {
      */
     async processBloodUsage(bankId, bloodType, units, usageType = 'transfusion') {
         try {
-            // This would update the database to reduce available stock
+            // Update inventory status to used
+            const query = `
+                UPDATE blood_inventory 
+                SET status = 'used', updated_at = CURRENT_TIMESTAMP
+                WHERE bank_id = $1 AND blood_type = $2 AND status IN ('available', 'reserved')
+                AND id IN (
+                    SELECT id FROM blood_inventory 
+                    WHERE bank_id = $1 AND blood_type = $2 AND status IN ('available', 'reserved')
+                    ORDER BY expiration_date ASC
+                    LIMIT $3
+                )
+                RETURNING *
+            `;
+
+            const result = await this.dbManager.query(query, [bankId, bloodType, units]);
+
             console.log(`Processed usage: -${units} units of ${bloodType} for ${usageType}`);
 
             return {
                 success: true,
                 blood_type: bloodType,
-                units_used: units,
+                units_used: result.rows.length,
                 usage_type: usageType,
                 bank_id: bankId,
-                processed_at: new Date().toISOString()
+                processed_at: new Date().toISOString(),
+                used_items: result.rows
             };
 
         } catch (error) {
@@ -213,18 +284,48 @@ class InventoryService {
      */
     async getInventoryStatistics(bankId, timeframe = '30d') {
         try {
+            const days = parseInt(timeframe.replace('d', ''));
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+
+            const queries = [
+                'SELECT COUNT(*) as count FROM donations WHERE hospital_id = $1 AND status = \'completed\' AND created_at >= $2',
+                'SELECT COUNT(*) as count FROM blood_inventory WHERE bank_id = $1 AND status = \'used\' AND created_at >= $2',
+                'SELECT COUNT(*) as count FROM blood_inventory WHERE bank_id = $1 AND status = \'expired\' AND created_at >= $2',
+                'SELECT blood_type, COUNT(*) as count FROM blood_inventory WHERE bank_id = $1 AND created_at >= $2 GROUP BY blood_type'
+            ];
+
+            const [donationsResult, usageResult, expiredResult, distributionResult] = await Promise.all([
+                this.dbManager.query(queries[0], [bankId, startDate]),
+                this.dbManager.query(queries[1], [bankId, startDate]),
+                this.dbManager.query(queries[2], [bankId, startDate]),
+                this.dbManager.query(queries[3], [bankId, startDate])
+            ]);
+
+            const bloodTypeDistribution = {};
+            distributionResult.rows.forEach(row => {
+                bloodTypeDistribution[row.blood_type] = {
+                    percentage: '0.0', // Would calculate based on total
+                    units: parseInt(row.count)
+                };
+            });
+
+            const totalDonations = parseInt(donationsResult.rows[0].count);
+            const totalUsage = parseInt(usageResult.rows[0].count);
+            const expiredUnits = parseInt(expiredResult.rows[0].count);
+
             return {
                 bank_id: bankId,
                 timeframe,
                 statistics: {
-                    total_donations: Math.floor(Math.random() * 100),
-                    total_usage: Math.floor(Math.random() * 80),
-                    expired_units: Math.floor(Math.random() * 10),
-                    turnover_rate: (Math.random() * 0.5 + 0.3).toFixed(2), // 30-80%
-                    waste_percentage: (Math.random() * 0.1).toFixed(2), // 0-10%
-                    blood_type_distribution: this.generateBloodTypeDistribution(),
-                    peak_usage_hours: ['09:00-12:00', '14:00-17:00'],
-                    average_stock_level: Math.floor(Math.random() * 30 + 10)
+                    total_donations: totalDonations,
+                    total_usage: totalUsage,
+                    expired_units: expiredUnits,
+                    turnover_rate: totalDonations > 0 ? (totalUsage / totalDonations).toFixed(2) : '0.00',
+                    waste_percentage: totalDonations > 0 ? (expiredUnits / totalDonations * 100).toFixed(2) : '0.00',
+                    blood_type_distribution: bloodTypeDistribution,
+                    peak_usage_hours: ['09:00-12:00', '14:00-17:00'], // Would be calculated from actual data
+                    average_stock_level: 0 // Would be calculated from inventory history
                 },
                 generated_at: new Date().toISOString()
             };
@@ -236,39 +337,32 @@ class InventoryService {
     }
 
     /**
-     * Generate blood type distribution statistics
-     */
-    generateBloodTypeDistribution() {
-        const distribution = {};
-        
-        for (const bloodType of this.bloodTypes) {
-            distribution[bloodType] = {
-                percentage: (Math.random() * 20 + 5).toFixed(1), // 5-25%
-                units: Math.floor(Math.random() * 50 + 10)
-            };
-        }
-        
-        return distribution;
-    }
-
-    /**
      * Check for expired blood units
      */
     async checkExpiredUnits(bankId) {
         try {
-            // This would query the database for expired units
-            const expiredUnits = [];
+            const query = `
+                UPDATE blood_inventory 
+                SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+                WHERE bank_id = $1 AND status = 'available' AND expiration_date < CURRENT_DATE
+                RETURNING blood_type, units, expiration_date
+            `;
+
+            const result = await this.dbManager.query(query, [bankId]);
             
-            for (const bloodType of this.bloodTypes) {
-                const expired = Math.floor(Math.random() * 5);
-                if (expired > 0) {
-                    expiredUnits.push({
-                        blood_type: bloodType,
-                        units: expired,
-                        expired_date: new Date().toISOString()
-                    });
+            const expiredByType = {};
+            result.rows.forEach(row => {
+                if (!expiredByType[row.blood_type]) {
+                    expiredByType[row.blood_type] = 0;
                 }
-            }
+                expiredByType[row.blood_type] += row.units;
+            });
+
+            const expiredUnits = Object.entries(expiredByType).map(([bloodType, units]) => ({
+                blood_type: bloodType,
+                units: units,
+                expired_date: new Date().toISOString()
+            }));
 
             return {
                 bank_id: bankId,
@@ -288,6 +382,9 @@ class InventoryService {
      */
     async getInventoryForecast(bankId, days = 7) {
         try {
+            // This would use historical data and ML models in production
+            // For now, providing a simple forecast based on current trends
+            
             const forecast = [];
             
             for (let i = 1; i <= days; i++) {
@@ -296,10 +393,19 @@ class InventoryService {
                 
                 const dayForecast = {};
                 for (const bloodType of this.bloodTypes) {
+                    // Simple forecast logic - would be more sophisticated in production
+                    const currentInventory = await this.dbManager.getBloodInventory(bankId, bloodType);
+                    const currentStock = currentInventory
+                        .filter(item => item.status === 'available')
+                        .reduce((sum, item) => sum + item.units, 0);
+                    
+                    const predictedDemand = Math.floor(Math.random() * 5 + 1); // 1-5 units per day
+                    const predictedStock = Math.max(0, currentStock - (predictedDemand * i));
+                    
                     dayForecast[bloodType] = {
-                        predicted_stock: Math.floor(Math.random() * 40 + 5),
-                        predicted_demand: Math.floor(Math.random() * 10 + 1),
-                        recommended_action: Math.random() > 0.7 ? 'request_donations' : 'maintain'
+                        predicted_stock: predictedStock,
+                        predicted_demand: predictedDemand,
+                        recommended_action: predictedStock < this.lowStockThreshold ? 'request_donations' : 'maintain'
                     };
                 }
                 

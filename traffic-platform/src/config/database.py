@@ -6,17 +6,42 @@ from psycopg2.pool import SimpleConnectionPool
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import json
+import sys
+
+# Add shared database config to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'shared', 'database'))
 
 class DatabaseManager:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         
-        # Database connection parameters
-        self.db_url = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5436/local_lens_traffic')
+        # Use Neon database configuration for traffic branch
+        self.branch_name = 'traffic'
+        self.db_url = self._get_neon_connection_string()
         
         # Connection pool
         self.connection_pool = None
         self._initialize_connection_pool()
+        
+        print(f'🚦 Traffic Platform using Neon traffic-management branch')
+    
+    def _get_neon_connection_string(self):
+        """Get Neon connection string for traffic branch"""
+        base_url = os.getenv('NEON_DATABASE_URL')
+        project_id = os.getenv('NEON_PROJECT_ID')
+        
+        if not base_url or not project_id:
+            # Fallback to local development
+            return os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5436/local_lens_traffic')
+        
+        # Parse base URL components
+        from urllib.parse import urlparse
+        parsed = urlparse(base_url)
+        
+        # Construct traffic branch connection string
+        connection_string = f"postgresql://{parsed.username}:{parsed.password}@{parsed.hostname}:{parsed.port or 5432}/neondb?options=project%3D{project_id}-traffic-management"
+        
+        return connection_string
     
     def _initialize_connection_pool(self):
         """Initialize database connection pool"""
@@ -26,9 +51,9 @@ class DatabaseManager:
                 maxconn=10,
                 dsn=self.db_url
             )
-            self.logger.info("Database connection pool initialized")
+            self.logger.info("✅ Traffic Platform database connection pool initialized with Neon traffic-management branch")
         except Exception as e:
-            self.logger.error(f"Failed to initialize database connection pool: {e}")
+            self.logger.error(f"❌ Failed to initialize database connection pool: {e}")
             raise
     
     def get_connection(self):
@@ -47,226 +72,62 @@ class DatabaseManager:
             self.logger.error(f"Failed to return database connection: {e}")
     
     def initialize_database(self):
-        """Initialize database tables"""
+        """Initialize database (schema handled by migrations)"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
             
-            # Create tables
-            self._create_tables(cursor)
+            # Test connection
+            cursor.execute('SELECT 1 as health_check, NOW() as timestamp')
+            result = cursor.fetchone()
             
-            # Insert initial data
-            self._insert_initial_data(cursor)
-            
-            conn.commit()
             cursor.close()
             self.return_connection(conn)
             
-            self.logger.info("Database initialized successfully")
+            self.logger.info("✅ Traffic Platform database initialized successfully with Neon traffic-management branch")
             
         except Exception as e:
-            self.logger.error(f"Failed to initialize database: {e}")
+            self.logger.error(f"❌ Failed to initialize database: {e}")
             if conn:
-                conn.rollback()
                 cursor.close()
                 self.return_connection(conn)
             raise
     
-    def _create_tables(self, cursor):
-        """Create database tables"""
-        
-        # Traffic signals table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS traffic_signals (
-                id VARCHAR(50) PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                latitude DECIMAL(10, 8) NOT NULL,
-                longitude DECIMAL(11, 8) NOT NULL,
-                location_description TEXT,
-                signal_type VARCHAR(20) DEFAULT 'standard',
-                status VARCHAR(20) DEFAULT 'active',
-                installation_date DATE,
-                last_maintenance DATE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Emergency detections table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS emergency_detections (
-                id SERIAL PRIMARY KEY,
-                signal_id VARCHAR(50) REFERENCES traffic_signals(id),
-                vehicle_type VARCHAR(20) NOT NULL,
-                confidence DECIMAL(5, 4) NOT NULL,
-                detection_time TIMESTAMP NOT NULL,
-                image_path VARCHAR(255),
-                bbox_coordinates JSONB,
-                features_detected JSONB,
-                action_taken VARCHAR(50),
-                response_time_ms INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Signal state history table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS signal_state_history (
-                id SERIAL PRIMARY KEY,
-                signal_id VARCHAR(50) REFERENCES traffic_signals(id),
-                state VARCHAR(10) NOT NULL,
-                state_duration INTEGER NOT NULL,
-                is_emergency_override BOOLEAN DEFAULT FALSE,
-                override_reason TEXT,
-                traffic_density DECIMAL(3, 2),
-                start_time TIMESTAMP NOT NULL,
-                end_time TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Emergency routes table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS emergency_routes (
-                id SERIAL PRIMARY KEY,
-                route_id VARCHAR(50) UNIQUE NOT NULL,
-                vehicle_type VARCHAR(20) NOT NULL,
-                start_location JSONB NOT NULL,
-                end_location JSONB NOT NULL,
-                route_waypoints JSONB,
-                signals_coordinated JSONB,
-                total_distance DECIMAL(8, 2),
-                estimated_duration INTEGER,
-                actual_duration INTEGER,
-                time_saved INTEGER,
-                status VARCHAR(20) DEFAULT 'active',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                completed_at TIMESTAMP
-            )
-        """)
-        
-        # Traffic analytics table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS traffic_analytics (
-                id SERIAL PRIMARY KEY,
-                signal_id VARCHAR(50) REFERENCES traffic_signals(id),
-                date DATE NOT NULL,
-                hour INTEGER NOT NULL,
-                vehicle_count INTEGER DEFAULT 0,
-                average_wait_time DECIMAL(5, 2) DEFAULT 0,
-                emergency_overrides INTEGER DEFAULT 0,
-                traffic_density DECIMAL(3, 2) DEFAULT 0,
-                efficiency_score DECIMAL(3, 2) DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(signal_id, date, hour)
-            )
-        """)
-        
-        # Hospitals table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS hospitals (
-                id VARCHAR(50) PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                latitude DECIMAL(10, 8) NOT NULL,
-                longitude DECIMAL(11, 8) NOT NULL,
-                hospital_type VARCHAR(20) NOT NULL,
-                capacity INTEGER,
-                contact_number VARCHAR(20),
-                emergency_services BOOLEAN DEFAULT TRUE,
-                status VARCHAR(20) DEFAULT 'active',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # System events log table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS system_events (
-                id SERIAL PRIMARY KEY,
-                event_type VARCHAR(50) NOT NULL,
-                event_source VARCHAR(50) NOT NULL,
-                event_data JSONB,
-                severity VARCHAR(10) DEFAULT 'info',
-                message TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Create indexes for better performance
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_emergency_detections_signal_time ON emergency_detections(signal_id, detection_time)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_history_signal_time ON signal_state_history(signal_id, start_time)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_traffic_analytics_signal_date ON traffic_analytics(signal_id, date)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_system_events_type_time ON system_events(event_type, timestamp)")
-    
-    def _insert_initial_data(self, cursor):
-        """Insert initial data into tables"""
-        
-        # Insert traffic signals
-        signals_data = [
-            ('clock_tower', 'Clock Tower', 30.3165, 78.0322, 'Main city center intersection'),
-            ('paltan_bazaar', 'Paltan Bazaar', 30.3203, 78.0389, 'Commercial area intersection'),
-            ('rispana_bridge', 'Rispana Bridge', 30.3456, 78.0512, 'Bridge crossing intersection'),
-            ('gandhi_road', 'Gandhi Road', 30.3293, 78.0428, 'Gandhi Road main intersection'),
-            ('rajpur_road', 'Rajpur Road', 30.3742, 78.0664, 'Rajpur Road intersection'),
-            ('saharanpur_road', 'Saharanpur Road', 30.3678, 78.0598, 'Saharanpur Road intersection'),
-            ('haridwar_road', 'Haridwar Road', 30.2987, 78.0234, 'Haridwar Road intersection'),
-            ('mussoorie_road', 'Mussoorie Road', 30.3567, 78.0789, 'Mussoorie Road intersection'),
-            ('chakrata_road', 'Chakrata Road', 30.3234, 78.0456, 'Chakrata Road intersection'),
-            ('ballupur', 'Ballupur Chowk', 30.3445, 78.0623, 'Ballupur main chowk')
-        ]
-        
-        for signal_data in signals_data:
-            cursor.execute("""
-                INSERT INTO traffic_signals (id, name, latitude, longitude, location_description, installation_date)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO NOTHING
-            """, (*signal_data, datetime.now().date()))
-        
-        # Insert hospitals
-        hospitals_data = [
-            ('doon_hospital', 'Doon Hospital', 30.3165, 78.0322, 'general', 200, '+91-135-2715001'),
-            ('max_hospital', 'Max Super Speciality Hospital', 30.3293, 78.0428, 'specialty', 300, '+91-135-6712000'),
-            ('himalayan_hospital', 'Himalayan Hospital', 30.3742, 78.0664, 'general', 150, '+91-135-2770000'),
-            ('synergy_hospital', 'Synergy Hospital', 30.3456, 78.0512, 'emergency', 100, '+91-135-2749999'),
-            ('govt_hospital', 'Government Doon Medical College Hospital', 30.3203, 78.0389, 'general', 400, '+91-135-2528888'),
-            ('shri_mahant_hospital', 'Shri Mahant Indiresh Hospital', 30.3678, 78.0598, 'general', 250, '+91-135-2770000')
-        ]
-        
-        for hospital_data in hospitals_data:
-            cursor.execute("""
-                INSERT INTO hospitals (id, name, latitude, longitude, hospital_type, capacity, contact_number)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO NOTHING
-            """, hospital_data)
-    
     def log_emergency_detection(self, signal_id: str, vehicle_type: str, 
                               confidence: float, detection_time: datetime,
                               bbox_coordinates: Dict = None, features_detected: List = None,
-                              action_taken: str = None, response_time_ms: int = None) -> int:
+                              action_taken: str = None, response_time_ms: int = None,
+                              image_path: str = None) -> str:
         """Log emergency vehicle detection"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
             
+            # Generate detection ID
+            cursor.execute("SELECT COUNT(*) FROM emergency_detections WHERE detection_time::date = CURRENT_DATE")
+            daily_count = cursor.fetchone()[0] + 1
+            detection_id = f"ED-{datetime.now().strftime('%Y')}-{daily_count:03d}"
+            
             cursor.execute("""
                 INSERT INTO emergency_detections 
-                (signal_id, vehicle_type, confidence, detection_time, bbox_coordinates, 
-                 features_detected, action_taken, response_time_ms)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
+                (detection_id, signal_id, vehicle_type, confidence, detection_time, 
+                 image_path, bbox_coordinates, features_detected, action_taken, response_time_ms)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING detection_id
             """, (
-                signal_id, vehicle_type, confidence, detection_time,
+                detection_id, signal_id, vehicle_type, confidence, detection_time,
+                image_path,
                 json.dumps(bbox_coordinates) if bbox_coordinates else None,
                 json.dumps(features_detected) if features_detected else None,
                 action_taken, response_time_ms
             ))
             
-            detection_id = cursor.fetchone()[0]
+            result_detection_id = cursor.fetchone()[0]
             conn.commit()
             cursor.close()
             self.return_connection(conn)
             
-            return detection_id
+            return result_detection_id
             
         except Exception as e:
             self.logger.error(f"Failed to log emergency detection: {e}")
@@ -313,34 +174,40 @@ class DatabaseManager:
                 self.return_connection(conn)
             raise
     
-    def create_emergency_route(self, route_id: str, vehicle_type: str,
+    def create_emergency_route(self, vehicle_type: str,
                              start_location: Dict, end_location: Dict,
                              route_waypoints: List = None, signals_coordinated: List = None,
-                             total_distance: float = None, estimated_duration: int = None) -> int:
+                             total_distance: float = None, estimated_duration: int = None,
+                             priority_level: int = 1) -> str:
         """Create emergency route record"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
             
+            # Generate route ID
+            cursor.execute("SELECT COUNT(*) FROM emergency_routes WHERE created_at::date = CURRENT_DATE")
+            daily_count = cursor.fetchone()[0] + 1
+            route_id = f"ER-{datetime.now().strftime('%Y')}-{daily_count:03d}"
+            
             cursor.execute("""
                 INSERT INTO emergency_routes 
                 (route_id, vehicle_type, start_location, end_location, route_waypoints,
-                 signals_coordinated, total_distance, estimated_duration)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
+                 signals_coordinated, total_distance, estimated_duration, priority_level)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING route_id
             """, (
                 route_id, vehicle_type, json.dumps(start_location), json.dumps(end_location),
                 json.dumps(route_waypoints) if route_waypoints else None,
                 json.dumps(signals_coordinated) if signals_coordinated else None,
-                total_distance, estimated_duration
+                total_distance, estimated_duration, priority_level
             ))
             
-            route_db_id = cursor.fetchone()[0]
+            result_route_id = cursor.fetchone()[0]
             conn.commit()
             cursor.close()
             self.return_connection(conn)
             
-            return route_db_id
+            return result_route_id
             
         except Exception as e:
             self.logger.error(f"Failed to create emergency route: {e}")
@@ -383,7 +250,9 @@ class DatabaseManager:
             
             cursor.execute("""
                 SELECT id, name, latitude, longitude, location_description, 
-                       signal_type, status, installation_date, last_maintenance
+                       signal_type, status, installation_date, last_maintenance,
+                       default_timing, emergency_override_enabled, ai_detection_enabled,
+                       ip_address, last_heartbeat, connection_status
                 FROM traffic_signals 
                 WHERE status = 'active'
                 ORDER BY name
@@ -410,7 +279,9 @@ class DatabaseManager:
             
             cursor.execute("""
                 SELECT id, name, latitude, longitude, location_description, 
-                       signal_type, status, installation_date, last_maintenance
+                       signal_type, status, installation_date, last_maintenance,
+                       default_timing, emergency_override_enabled, ai_detection_enabled,
+                       ip_address, last_heartbeat, connection_status
                 FROM traffic_signals 
                 WHERE id = %s
             """, (signal_id,))
@@ -427,6 +298,29 @@ class DatabaseManager:
                 cursor.close()
                 self.return_connection(conn)
             return None
+    
+    def update_signal_heartbeat(self, signal_id: str, connection_status: str = 'connected'):
+        """Update signal heartbeat and connection status"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE traffic_signals 
+                SET last_heartbeat = %s, connection_status = %s, updated_at = %s
+                WHERE id = %s
+            """, (datetime.utcnow(), connection_status, datetime.utcnow(), signal_id))
+            
+            conn.commit()
+            cursor.close()
+            self.return_connection(conn)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to update signal heartbeat: {e}")
+            if conn:
+                conn.rollback()
+                cursor.close()
+                self.return_connection(conn)
     
     def get_traffic_analytics(self, start_date: str = None, end_date: str = None) -> Dict:
         """Get traffic analytics data"""
@@ -525,7 +419,8 @@ class DatabaseManager:
                     AVG(actual_duration) as avg_actual_duration,
                     AVG(time_saved) as avg_time_saved,
                     COUNT(CASE WHEN vehicle_type = 'ambulance' THEN 1 END) as ambulance_routes,
-                    COUNT(CASE WHEN vehicle_type = 'police' THEN 1 END) as police_routes
+                    COUNT(CASE WHEN vehicle_type = 'police' THEN 1 END) as police_routes,
+                    COUNT(CASE WHEN vehicle_type = 'fire_truck' THEN 1 END) as fire_truck_routes
                 FROM emergency_routes 
                 WHERE created_at::date BETWEEN %s AND %s
             """, (start_date, end_date))
@@ -580,19 +475,25 @@ class DatabaseManager:
     
     def log_system_event(self, event_type: str, event_source: str, 
                         event_data: Dict = None, severity: str = 'info', 
-                        message: str = None):
+                        message: str = None, signal_id: str = None):
         """Log system events"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
             
+            # Generate event ID
+            cursor.execute("SELECT COUNT(*) FROM system_events WHERE timestamp::date = CURRENT_DATE")
+            daily_count = cursor.fetchone()[0] + 1
+            event_id = f"SE-{datetime.now().strftime('%Y%m%d')}-{daily_count:04d}"
+            
             cursor.execute("""
-                INSERT INTO system_events (event_type, event_source, event_data, severity, message)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO system_events (event_id, event_type, event_source, event_data, 
+                                         severity, message, signal_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
-                event_type, event_source, 
+                event_id, event_type, event_source, 
                 json.dumps(event_data) if event_data else None,
-                severity, message
+                severity, message, signal_id
             ))
             
             conn.commit()
@@ -605,6 +506,38 @@ class DatabaseManager:
                 conn.rollback()
                 cursor.close()
                 self.return_connection(conn)
+    
+    def get_hospitals(self, hospital_type: str = None, emergency_only: bool = False) -> List[Dict]:
+        """Get hospitals for emergency routing"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            query = "SELECT * FROM hospitals WHERE status = 'active'"
+            params = []
+            
+            if hospital_type:
+                query += " AND hospital_type = %s"
+                params.append(hospital_type)
+            
+            if emergency_only:
+                query += " AND emergency_services = true"
+            
+            query += " ORDER BY name"
+            
+            cursor.execute(query, params)
+            hospitals = cursor.fetchall()
+            cursor.close()
+            self.return_connection(conn)
+            
+            return [dict(hospital) for hospital in hospitals]
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get hospitals: {e}")
+            if conn:
+                cursor.close()
+                self.return_connection(conn)
+            return []
     
     def cleanup_old_data(self, days_to_keep: int = 90):
         """Clean up old data to maintain database performance"""
@@ -631,6 +564,13 @@ class DatabaseManager:
                 DELETE FROM system_events 
                 WHERE timestamp < %s
             """, (cutoff_date,))
+            
+            # Clean old traffic analytics (keep aggregated data longer)
+            analytics_cutoff = datetime.now() - timedelta(days=days_to_keep * 2)
+            cursor.execute("""
+                DELETE FROM traffic_analytics 
+                WHERE date < %s
+            """, (analytics_cutoff.date(),))
             
             conn.commit()
             cursor.close()

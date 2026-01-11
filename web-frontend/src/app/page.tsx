@@ -61,8 +61,8 @@ export default function Home() {
       name: 'Blood Donation Platform',
       description: 'Real-time blood donor-recipient matching with emergency response capabilities',
       icon: '🩸',
-      status: 'Coming Soon',
-      enabled: false,
+      status: 'Active',
+      enabled: true,
       route: '/blood'
     },
     {
@@ -73,15 +73,6 @@ export default function Home() {
       status: 'Coming Soon',
       enabled: false,
       route: '/complaint'
-    },
-    {
-      id: 'architecture',
-      name: 'Architecture Platform',
-      description: 'Scalable application framework with DevOps integration and production-ready templates',
-      icon: '🏗️',
-      status: 'Coming Soon',
-      enabled: false,
-      route: '/architecture'
     },
     {
       id: 'traffic',
@@ -252,7 +243,7 @@ export default function Home() {
           </h2>
           <p className="text-xl text-blue-200 max-w-4xl mx-auto leading-relaxed">
             Access specialized systems for blood donation management, government complaint handling, 
-            architecture services, and intelligent traffic control with real-time monitoring and AI-powered insights.
+            and intelligent traffic control with real-time monitoring and AI-powered insights.
           </p>
         </div>
 
@@ -273,7 +264,7 @@ export default function Home() {
                 <div className="text-blue-300 text-sm">System Uptime</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl font-bold text-yellow-400">4</div>
+                <div className="text-3xl font-bold text-yellow-400">3</div>
                 <div className="text-blue-300 text-sm">Platforms</div>
               </div>
             </div>
@@ -359,8 +350,8 @@ export default function Home() {
 
         {/* Other Platforms Grid */}
         <div className="mb-16 animate-slideInRight">
-          <h3 className="text-3xl font-bold text-white mb-8 text-center">Other Platforms in Development</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <h3 className="text-3xl font-bold text-white mb-8 text-center">Available Platforms</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {platforms.filter(p => p.id !== 'traffic').map((platform, index) => (
               <div
                 key={platform.id}
@@ -376,8 +367,10 @@ export default function Home() {
                 <div className="relative z-10">
                   <div className="flex items-center justify-between mb-6">
                     <div className="text-5xl animate-bounce-hover">{platform.icon}</div>
-                    <div className="glass-dark px-4 py-2 rounded-full text-sm font-medium">
-                      Coming Soon
+                    <div className={`glass-dark px-4 py-2 rounded-full text-sm font-medium ${
+                      platform.enabled ? 'bg-green-500/20 text-green-200' : 'bg-yellow-500/20 text-yellow-200'
+                    }`}>
+                      {platform.status}
                     </div>
                   </div>
                   
@@ -387,14 +380,29 @@ export default function Home() {
                   </p>
                   
                   <div className="space-y-2 text-sm text-gray-300">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
-                      <span>Platform under development</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                      <span>Expected Q2 2024</span>
-                    </div>
+                    {platform.enabled ? (
+                      <>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                          <span>Platform operational</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                          <span>Real-time features active</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
+                          <span>Platform under development</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                          <span>Expected Q2 2024</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
                 
@@ -410,7 +418,7 @@ export default function Home() {
         <div className="mb-16 animate-fadeIn">
           <div className="glass rounded-3xl p-8 border border-white/20">
             <h3 className="text-2xl font-bold text-white mb-8 text-center">Platform Status Overview</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {platforms.map((platform, index) => (
                 <div key={platform.id} className="text-center p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-all duration-300">
                   <div className="text-3xl mb-3">{platform.icon}</div>
@@ -444,18 +452,18 @@ export default function Home() {
               <span>Traffic Control Panel</span>
             </button>
             <button 
+              onClick={() => router.push('/blood')}
+              className="btn-primary flex items-center space-x-3"
+            >
+              <span>🩸</span>
+              <span>Blood Platform Dashboard</span>
+            </button>
+            <button 
               onClick={() => window.open('http://localhost:5000', '_blank')}
               className="btn-secondary flex items-center space-x-3"
             >
               <span>🗺️</span>
               <span>Live Traffic Map</span>
-            </button>
-            <button 
-              className="bg-gradient-to-r from-gray-600 to-gray-700 text-gray-300 px-8 py-4 rounded-xl cursor-not-allowed opacity-50 flex items-center space-x-3"
-              disabled
-            >
-              <span>🩸</span>
-              <span>Blood Platform (Q2 2024)</span>
             </button>
             <button 
               className="bg-gradient-to-r from-gray-600 to-gray-700 text-gray-300 px-8 py-4 rounded-xl cursor-not-allowed opacity-50 flex items-center space-x-3"
@@ -494,17 +502,13 @@ export default function Home() {
                   <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                   <span>Traffic Management System</span>
                 </li>
-                <li className="flex items-center space-x-2 text-yellow-400">
-                  <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
+                <li className="flex items-center space-x-2 text-green-400">
+                  <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                   <span>Blood Donation Platform</span>
                 </li>
                 <li className="flex items-center space-x-2 text-yellow-400">
                   <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
                   <span>Complaint Management</span>
-                </li>
-                <li className="flex items-center space-x-2 text-yellow-400">
-                  <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
-                  <span>Architecture Platform</span>
                 </li>
               </ul>
             </div>

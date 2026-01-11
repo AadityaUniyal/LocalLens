@@ -162,12 +162,6 @@
   box-shadow: 0 10px 30px rgba(78, 205, 196, 0.3);
 }
 
-.platform-card.architecture {
-  background: linear-gradient(135deg, #a8edea 0%, #fed6e3 50%, #d299c2 100%);
-  color: #2c3e50;
-  box-shadow: 0 10px 30px rgba(168, 237, 234, 0.3);
-}
-
 .platform-card.traffic {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
   box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
@@ -462,12 +456,6 @@
   box-shadow: 0 15px 40px rgba(78, 205, 196, 0.4);
 }
 
-.platform-card.architecture {
-  background: linear-gradient(135deg, #a8edea 0%, #fed6e3 50%, #d299c2 100%);
-  color: #2c3e50;
-  box-shadow: 0 15px 40px rgba(168, 237, 234, 0.4);
-}
-
 .platform-card.traffic {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
   box-shadow: 0 15px 40px rgba(102, 126, 234, 0.4);
@@ -659,11 +647,6 @@ body {
 
 .platform-card.complaint {
   background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
-}
-
-.platform-card.architecture {
-  background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
-  color: #333;
 }
 
 .platform-card.traffic {

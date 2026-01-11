@@ -4,18 +4,23 @@
  */
 
 const { calculateDistance } = require('../utils/helpers');
+const DatabaseManager = require('../config/database');
 
 class RoutingService {
     constructor() {
+        this.db = new DatabaseManager();
         this.categoryMappings = {
-            'infrastructure': ['municipal_corporation', 'public_works_department'],
-            'sanitation': ['municipal_corporation', 'sanitation_department'],
+            'infrastructure': ['municipal_corporation', 'other'],
+            'sanitation': ['municipal_corporation', 'health_department'],
             'traffic': ['traffic_police', 'transport_department'],
             'noise': ['police_department', 'municipal_corporation'],
-            'water': ['water_department', 'municipal_corporation'],
-            'electricity': ['electricity_board', 'power_department'],
-            'public_safety': ['police_department', 'fire_department'],
-            'environment': ['pollution_control_board', 'environment_department'],
+            'water': ['water_board', 'municipal_corporation'],
+            'electricity': ['electricity_board'],
+            'public_safety': ['police_department'],
+            'environment': ['environment_department', 'municipal_corporation'],
+            'healthcare': ['health_department'],
+            'education': ['education_department'],
+            'corruption': ['district_administration'],
             'other': ['municipal_corporation']
         };
         
@@ -27,7 +32,8 @@ class RoutingService {
     }
 
     async initialize() {
-        console.log('RoutingService initialized');
+        await this.db.initialize();
+        console.log('RoutingService initialized with database connection');
     }
 
     /**
@@ -38,8 +44,16 @@ class RoutingService {
             // Get potential authorities for this category
             const potentialAuthorities = await this.getAuthoritiesByCategory(complaint.category);
             
-            // Filter by location/jurisdiction
-            const localAuthorities = await this.filterByLocation(potentialAuthorities, complaint.location);
+            // Filter by location/jurisdiction if location data is available
+            let localAuthorities = potentialAuthorities;
+            if (complaint.location && complaint.location.lat && complaint.location.lng) {
+                localAuthorities = await this.filterByLocation(potentialAuthorities, complaint.location);
+            }
+            
+            // If no local authorities found, use all potential authorities
+            if (localAuthorities.length === 0) {
+                localAuthorities = potentialAuthorities;
+            }
             
             // Select best authority based on workload and availability
             const selectedAuthority = await this.selectOptimalAuthority(localAuthorities, complaint);
@@ -53,9 +67,10 @@ class RoutingService {
             } else {
                 // Fallback to default authority
                 const defaultAuthority = await this.getDefaultAuthority(complaint.category);
-                await this.assignComplaint(complaint.complaint_id, defaultAuthority.id);
-                
-                console.log(`Complaint ${complaint.complaint_id} routed to default authority ${defaultAuthority.name}`);
+                if (defaultAuthority) {
+                    await this.assignComplaint(complaint.complaint_id, defaultAuthority.id);
+                    console.log(`Complaint ${complaint.complaint_id} routed to default authority ${defaultAuthority.name}`);
+                }
                 return defaultAuthority;
             }
 
@@ -72,44 +87,22 @@ class RoutingService {
         try {
             const authorityTypes = this.categoryMappings[category] || ['municipal_corporation'];
             
-            // This would query the database for authorities of these types
-            // Mock implementation for now
-            const mockAuthorities = [
-                {
-                    id: 'auth-1',
-                    name: 'Municipal Corporation',
-                    type: 'municipal_corporation',
-                    jurisdiction: { lat: 40.7128, lng: -74.0060, radius: 50 },
-                    contact_email: 'municipal@city.gov',
-                    contact_phone: '+1234567890',
-                    working_hours: '09:00-17:00',
-                    categories: ['infrastructure', 'sanitation', 'noise', 'water', 'other'],
-                    current_workload: 15,
-                    max_capacity: 50,
-                    average_resolution_time: 7,
-                    active: true
-                },
-                {
-                    id: 'auth-2',
-                    name: 'Traffic Police Department',
-                    type: 'traffic_police',
-                    jurisdiction: { lat: 40.7128, lng: -74.0060, radius: 30 },
-                    contact_email: 'traffic@police.gov',
-                    contact_phone: '+1234567891',
-                    working_hours: '24/7',
-                    categories: ['traffic'],
-                    current_workload: 8,
-                    max_capacity: 25,
-                    average_resolution_time: 3,
-                    active: true
-                }
-            ];
+            // Get authorities from database that handle this category
+            const authorities = await this.db.getAuthorities({ 
+                category: category,
+                active_only: true 
+            });
             
-            return mockAuthorities.filter(auth => 
-                authorityTypes.includes(auth.type) && 
-                auth.categories.includes(category) &&
-                auth.active
-            );
+            // If no specific authorities found, get by type
+            if (authorities.length === 0) {
+                const allAuthorities = await this.db.getAuthorities({ active_only: true });
+                return allAuthorities.filter(auth => 
+                    authorityTypes.includes(auth.type) && 
+                    auth.categories.includes(category)
+                );
+            }
+            
+            return authorities;
 
         } catch (error) {
             console.error('Error fetching authorities by category:', error);
@@ -123,19 +116,34 @@ class RoutingService {
     async filterByLocation(authorities, complaintLocation) {
         try {
             return authorities.filter(authority => {
+                // If authority has no jurisdiction defined, include it
                 if (!authority.jurisdiction) return true;
                 
-                const distance = calculateDistance(
-                    complaintLocation.lat, complaintLocation.lng,
-                    authority.jurisdiction.lat, authority.jurisdiction.lng
-                );
+                // Parse jurisdiction if it's a string
+                let jurisdiction = authority.jurisdiction;
+                if (typeof jurisdiction === 'string') {
+                    try {
+                        jurisdiction = JSON.parse(jurisdiction);
+                    } catch (e) {
+                        return true; // Include if can't parse
+                    }
+                }
                 
-                return distance <= authority.jurisdiction.radius;
+                // Check if complaint location is within authority's jurisdiction
+                if (jurisdiction.lat && jurisdiction.lng && jurisdiction.radius) {
+                    const distance = calculateDistance(
+                        complaintLocation.lat, complaintLocation.lng,
+                        jurisdiction.lat, jurisdiction.lng
+                    );
+                    return distance <= jurisdiction.radius;
+                }
+                
+                return true; // Include if jurisdiction format is not recognized
             });
 
         } catch (error) {
             console.error('Error filtering authorities by location:', error);
-            throw error;
+            return authorities; // Return all authorities if filtering fails
         }
     }
 
@@ -216,19 +224,16 @@ class RoutingService {
     /**
      * Assign complaint to authority
      */
-    async assignComplaint(complaintId, authorityId) {
+    async assignComplaint(complaintId, authorityId, officerId = null, assignedBy = 'system', reason = 'Automatic routing') {
         try {
-            // This would update the database
-            console.log(`Assigning complaint ${complaintId} to authority ${authorityId}`);
+            // Assign complaint in database
+            const assignment = await this.db.assignComplaint(complaintId, authorityId, officerId, assignedBy, reason);
             
             // Update authority workload
             await this.updateAuthorityWorkload(authorityId, 1);
             
-            return {
-                complaint_id: complaintId,
-                authority_id: authorityId,
-                assigned_at: new Date()
-            };
+            console.log(`Complaint ${complaintId} assigned to authority ${authorityId}`);
+            return assignment;
 
         } catch (error) {
             console.error('Error assigning complaint:', error);
@@ -241,8 +246,8 @@ class RoutingService {
      */
     async updateAuthorityWorkload(authorityId, increment) {
         try {
-            // This would update the authority's current workload in the database
-            console.log(`Updating workload for authority ${authorityId} by ${increment}`);
+            await this.db.updateAuthorityWorkload(authorityId, increment);
+            console.log(`Updated workload for authority ${authorityId} by ${increment}`);
 
         } catch (error) {
             console.error('Error updating authority workload:', error);
@@ -255,22 +260,23 @@ class RoutingService {
      */
     async getDefaultAuthority(category) {
         try {
-            // Return municipal corporation as default
-            return {
-                id: 'default-auth',
-                name: 'Municipal Corporation (Default)',
+            // Try to get municipal corporation as default
+            const authorities = await this.db.getAuthorities({ 
                 type: 'municipal_corporation',
-                contact_email: 'default@city.gov',
-                contact_phone: '+1234567890',
-                categories: ['all'],
-                current_workload: 0,
-                max_capacity: 100,
-                active: true
-            };
+                active_only: true 
+            });
+            
+            if (authorities.length > 0) {
+                return authorities[0];
+            }
+            
+            // If no municipal corporation, get any active authority
+            const allAuthorities = await this.db.getAuthorities({ active_only: true });
+            return allAuthorities.length > 0 ? allAuthorities[0] : null;
 
         } catch (error) {
             console.error('Error getting default authority:', error);
-            throw error;
+            return null;
         }
     }
 
@@ -279,72 +285,7 @@ class RoutingService {
      */
     async getAuthorities(filters = {}) {
         try {
-            // This would query the database
-            // Mock implementation for now
-            const allAuthorities = [
-                {
-                    id: 'auth-1',
-                    name: 'Municipal Corporation',
-                    type: 'municipal_corporation',
-                    jurisdiction: { lat: 40.7128, lng: -74.0060, radius: 50 },
-                    contact_email: 'municipal@city.gov',
-                    contact_phone: '+1234567890',
-                    working_hours: '09:00-17:00',
-                    categories: ['infrastructure', 'sanitation', 'noise', 'water', 'other'],
-                    current_workload: 15,
-                    max_capacity: 50,
-                    average_resolution_time: 7,
-                    active: true
-                },
-                {
-                    id: 'auth-2',
-                    name: 'Traffic Police Department',
-                    type: 'traffic_police',
-                    jurisdiction: { lat: 40.7128, lng: -74.0060, radius: 30 },
-                    contact_email: 'traffic@police.gov',
-                    contact_phone: '+1234567891',
-                    working_hours: '24/7',
-                    categories: ['traffic'],
-                    current_workload: 8,
-                    max_capacity: 25,
-                    average_resolution_time: 3,
-                    active: true
-                },
-                {
-                    id: 'auth-3',
-                    name: 'Water Department',
-                    type: 'water_department',
-                    jurisdiction: { lat: 40.7128, lng: -74.0060, radius: 40 },
-                    contact_email: 'water@city.gov',
-                    contact_phone: '+1234567892',
-                    working_hours: '08:00-18:00',
-                    categories: ['water'],
-                    current_workload: 12,
-                    max_capacity: 30,
-                    average_resolution_time: 2,
-                    active: true
-                }
-            ];
-            
-            let filteredAuthorities = allAuthorities;
-            
-            // Apply filters
-            if (filters.category) {
-                filteredAuthorities = filteredAuthorities.filter(auth =>
-                    auth.categories.includes(filters.category)
-                );
-            }
-            
-            if (filters.active_only) {
-                filteredAuthorities = filteredAuthorities.filter(auth => auth.active);
-            }
-            
-            if (filters.location) {
-                const [lat, lng] = filters.location.split(',').map(parseFloat);
-                filteredAuthorities = await this.filterByLocation(filteredAuthorities, { lat, lng });
-            }
-            
-            return filteredAuthorities;
+            return await this.db.getAuthorities(filters);
 
         } catch (error) {
             console.error('Error fetching authorities:', error);

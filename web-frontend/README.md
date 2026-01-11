@@ -37,7 +37,7 @@ A modern, responsive web frontend for the Local Lens multi-platform ecosystem bu
 - **Animations**: Custom CSS animations with hardware acceleration
 - **Real-time**: Socket.IO client for live updates
 - **HTTP Client**: Axios for API communication
-- **Testing**: Jest with React Testing Library
+- **Development**: TypeScript with Next.js
 
 ## 📦 Installation
 
@@ -130,24 +130,27 @@ Custom utilities and components are defined in `globals.css`:
 - Incremental Static Regeneration for dynamic content
 - Client-side caching for API responses
 
-## 🧪 Testing
+## 🚀 Development
 
 ```bash
-# Run all tests
-npm test
+# Start development server
+npm run dev
 
-# Run tests in watch mode
-npm run test:watch
+# Build for production
+npm run build
 
-# Run tests with coverage
-npm test -- --coverage
+# Start production server
+npm start
+
+# Run linting
+npm run lint
 ```
 
-### Test Coverage
-- Component unit tests with React Testing Library
-- Integration tests for user workflows
-- API mocking for reliable test execution
-- Accessibility testing with jest-axe
+### Development Guidelines
+- Component development with TypeScript
+- Integration with authentication service
+- API communication with backend services
+- Real-time updates and notifications
 
 ## 🚀 Deployment
 
@@ -214,7 +217,7 @@ CMD ["npm", "start"]
 ### Development Guidelines
 - Follow TypeScript strict mode
 - Use ESLint and Prettier for code formatting
-- Write tests for new components and features
+- Implement new components and features
 - Follow accessibility best practices (WCAG 2.1)
 - Optimize for performance and SEO
 

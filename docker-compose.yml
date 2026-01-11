@@ -35,17 +35,6 @@ services:
     volumes:
       - complaint_db_data:/var/lib/postgresql/data
 
-  architecture-db:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: local_lens_architecture
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5435:5432"
-    volumes:
-      - architecture_db_data:/var/lib/postgresql/data
-
   traffic-db:
     image: postgres:15
     environment:
@@ -53,7 +42,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5436:5432"
+      - "5435:5432"
     volumes:
       - traffic_db_data:/var/lib/postgresql/data
 
@@ -110,26 +99,11 @@ services:
       - redis
       - auth-service
 
-  # Architecture Platform Service
-  architecture-service:
-    build: ./architecture-platform
-    ports:
-      - "3004:3000"
-    environment:
-      - NODE_ENV=development
-      - DATABASE_URL=postgresql://postgres:postgres@architecture-db:5432/local_lens_architecture
-      - REDIS_URL=redis://redis:6379
-      - AUTH_SERVICE_URL=http://auth-service:3000
-    depends_on:
-      - architecture-db
-      - redis
-      - auth-service
-
   # Traffic Platform Service
   traffic-service:
     build: ./traffic-platform
     ports:
-      - "3005:5000"
+      - "3004:5000"
     environment:
       - FLASK_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@traffic-db:5432/local_lens_traffic
@@ -149,19 +123,16 @@ services:
       - NEXT_PUBLIC_AUTH_SERVICE_URL=http://localhost:3001
       - NEXT_PUBLIC_BLOOD_SERVICE_URL=http://localhost:3002
       - NEXT_PUBLIC_COMPLAINT_SERVICE_URL=http://localhost:3003
-      - NEXT_PUBLIC_ARCHITECTURE_SERVICE_URL=http://localhost:3004
-      - NEXT_PUBLIC_TRAFFIC_SERVICE_URL=http://localhost:3005
+      - NEXT_PUBLIC_TRAFFIC_SERVICE_URL=http://localhost:3004
     depends_on:
       - auth-service
       - blood-service
       - complaint-service
-      - architecture-service
       - traffic-service
 
 volumes:
   auth_db_data:
   blood_db_data:
   complaint_db_data:
-  architecture_db_data:
   traffic_db_data:
   redis_data:

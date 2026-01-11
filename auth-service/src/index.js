@@ -171,6 +171,16 @@ app.post('/api/auth/login', authLimiter, [
             });
         }
 
+        // Check if MFA is enabled
+        if (user.mfa_enabled) {
+            return res.status(200).json({
+                success: true,
+                requiresMFA: true,
+                message: 'MFA token required',
+                userId: user.id // Temporary identifier for MFA verification
+            });
+        }
+
         // Generate tokens
         const token = authService.generateToken(user);
         const refreshToken = authService.generateRefreshToken(user);
@@ -196,7 +206,8 @@ app.post('/api/auth/login', authLimiter, [
                 email: user.email,
                 name: user.name,
                 role: user.role,
-                platforms_access: user.platforms_access,
+                platform_access: user.platform_access,
+                permissions: user.permissions,
                 last_login: new Date().toISOString()
             },
             token,
@@ -486,6 +497,408 @@ app.put('/api/auth/users/:userId/role', authService.authenticateToken, authServi
 
     } catch (error) {
         logger.error('Role update error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// MFA endpoints
+app.post('/api/auth/mfa/setup', authService.authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { method = 'totp' } = req.body;
+
+        const mfaSetup = await authService.setupMFA(userId, method);
+
+        logWithExtra(logger, 'info', 'MFA setup initiated', {
+            userId,
+            method
+        });
+
+        res.json({
+            success: true,
+            message: 'MFA setup initiated',
+            secret: mfaSetup.secret,
+            qrCode: mfaSetup.qrCode,
+            backupCodes: mfaSetup.backupCodes
+        });
+
+    } catch (error) {
+        logger.error('MFA setup error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to setup MFA'
+        });
+    }
+});
+
+app.post('/api/auth/mfa/verify-setup', authService.authenticateToken, [
+    body('token').isLength({ min: 6, max: 6 }).isNumeric()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid MFA token format'
+            });
+        }
+
+        const userId = req.user.id;
+        const { token } = req.body;
+
+        await authService.verifyMFASetup(userId, token);
+
+        logWithExtra(logger, 'info', 'MFA setup completed', {
+            userId
+        });
+
+        res.json({
+            success: true,
+            message: 'MFA setup completed successfully'
+        });
+
+    } catch (error) {
+        logger.error('MFA verification error:', error);
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.post('/api/auth/mfa/verify', [
+    body('email').isEmail().normalizeEmail(),
+    body('password').isLength({ min: 1 }),
+    body('mfaToken').isLength({ min: 6, max: 8 })
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid input'
+            });
+        }
+
+        const { email, password, mfaToken } = req.body;
+
+        // First authenticate with email/password
+        const user = await authService.authenticateUser(email, password);
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid credentials'
+            });
+        }
+
+        // Then verify MFA
+        const mfaValid = await authService.verifyMFA(user.id, mfaToken);
+        if (!mfaValid) {
+            logWithExtra(logger, 'warning', 'Failed MFA verification', {
+                userId: user.id,
+                email,
+                ip: req.ip
+            });
+
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid MFA token'
+            });
+        }
+
+        // Generate tokens
+        const token = authService.generateToken(user);
+        const refreshToken = authService.generateRefreshToken(user);
+
+        // Store refresh token
+        await authService.storeRefreshToken(user.id, refreshToken);
+
+        // Update last login
+        await authService.updateLastLogin(user.id);
+
+        logWithExtra(logger, 'info', 'User logged in with MFA', {
+            userId: user.id,
+            email: user.email,
+            role: user.role,
+            ip: req.ip
+        });
+
+        res.json({
+            success: true,
+            message: 'Login successful',
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role,
+                platform_access: user.platform_access,
+                last_login: new Date().toISOString()
+            },
+            token,
+            refreshToken
+        });
+
+    } catch (error) {
+        logger.error('MFA login error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+app.delete('/api/auth/mfa/disable', authService.authenticateToken, [
+    body('password').isLength({ min: 1 })
+], async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { password } = req.body;
+
+        // Verify password before disabling MFA
+        const user = await authService.getUserById(userId);
+        const isValidPassword = await bcrypt.compare(password, user.password_hash);
+
+        if (!isValidPassword) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid password'
+            });
+        }
+
+        // Disable MFA
+        await authService.updateUser(userId, {
+            mfa_enabled: false,
+            mfa_secret: null,
+            mfa_method: null,
+            backup_codes: null
+        });
+
+        logWithExtra(logger, 'info', 'MFA disabled', {
+            userId
+        });
+
+        res.json({
+            success: true,
+            message: 'MFA disabled successfully'
+        });
+
+    } catch (error) {
+        logger.error('MFA disable error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// Password reset endpoints
+app.post('/api/auth/password-reset/initiate', [
+    body('email').isEmail().normalizeEmail()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                error: 'Valid email is required'
+            });
+        }
+
+        const { email } = req.body;
+        const ipAddress = req.ip;
+        const userAgent = req.get('User-Agent');
+
+        const result = await authService.initiatePasswordReset(email, ipAddress, userAgent);
+
+        res.json(result);
+
+    } catch (error) {
+        logger.error('Password reset initiation error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+app.post('/api/auth/password-reset/complete', [
+    body('resetToken').isLength({ min: 1 }),
+    body('newPassword').isLength({ min: 8 }).matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid reset token or password format'
+            });
+        }
+
+        const { resetToken, newPassword } = req.body;
+        const ipAddress = req.ip;
+        const userAgent = req.get('User-Agent');
+
+        const result = await authService.completePasswordReset(resetToken, newPassword, ipAddress, userAgent);
+
+        res.json(result);
+
+    } catch (error) {
+        logger.error('Password reset completion error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// Security monitoring endpoints
+app.get('/api/auth/security/stats', authService.authenticateToken, authService.requireRole(['admin']), async (req, res) => {
+    try {
+        const stats = await authService.getAuthStatsWithSecurity();
+
+        res.json({
+            success: true,
+            stats
+        });
+
+    } catch (error) {
+        logger.error('Security stats error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+app.get('/api/auth/security/activities/:userId', authService.authenticateToken, authService.requireRole(['admin']), async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { page = 1, limit = 50, activityType } = req.query;
+
+        const activities = await authService.dbManager.getUserActivities(userId, {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            activityType
+        });
+
+        res.json({
+            success: true,
+            activities
+        });
+
+    } catch (error) {
+        logger.error('User activities error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// Platform integration endpoints
+app.post('/api/auth/validate-platform-token', [
+    body('token').isLength({ min: 1 }),
+    body('platform').isIn(['blood-platform', 'complaint-platform', 'traffic-platform'])
+], async (req, res) => {
+    try {
+        const { token, platform } = req.body;
+
+        const result = await authService.validateTokenForPlatform(token, platform);
+
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(401).json(result);
+        }
+
+    } catch (error) {
+        logger.error('Platform token validation error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// Enhanced permission management endpoints
+app.post('/api/auth/permissions/grant', authService.authenticateToken, authService.requireRole(['admin']), [
+    body('userId').isUUID(),
+    body('permissions').isArray()
+], async (req, res) => {
+    try {
+        const { userId, permissions } = req.body;
+
+        const user = await authService.getUserById(userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        const currentPermissions = user.permissions || [];
+        const newPermissions = [...new Set([...currentPermissions, ...permissions])];
+
+        await authService.updateUser(userId, { permissions: newPermissions });
+
+        logWithExtra(logger, 'info', 'Permissions granted', {
+            adminId: req.user.id,
+            targetUserId: userId,
+            grantedPermissions: permissions
+        });
+
+        res.json({
+            success: true,
+            message: 'Permissions granted successfully',
+            permissions: newPermissions
+        });
+
+    } catch (error) {
+        logger.error('Permission grant error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+app.post('/api/auth/permissions/revoke', authService.authenticateToken, authService.requireRole(['admin']), [
+    body('userId').isUUID(),
+    body('permissions').isArray()
+], async (req, res) => {
+    try {
+        const { userId, permissions } = req.body;
+
+        const user = await authService.getUserById(userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        const currentPermissions = user.permissions || [];
+        const newPermissions = currentPermissions.filter(p => !permissions.includes(p));
+
+        await authService.updateUser(userId, { permissions: newPermissions });
+
+        logWithExtra(logger, 'info', 'Permissions revoked', {
+            adminId: req.user.id,
+            targetUserId: userId,
+            revokedPermissions: permissions
+        });
+
+        res.json({
+            success: true,
+            message: 'Permissions revoked successfully',
+            permissions: newPermissions
+        });
+
+    } catch (error) {
+        logger.error('Permission revoke error:', error);
         res.status(500).json({
             success: false,
             error: 'Internal server error'
