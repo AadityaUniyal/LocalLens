@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
 import threading
 import time
-
 @dataclass
 class SignalState:
     signal_id: str
