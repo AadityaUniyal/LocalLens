@@ -3,7 +3,6 @@ import sys
 import requests
 from pathlib import Path
 import hashlib
-
 def download_file(url: str, destination: str, expected_hash: str = None) -> bool:
     """
     Download file from URL with progress indication
