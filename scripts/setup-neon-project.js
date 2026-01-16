@@ -1,10 +1,3 @@
-#!/usr/bin/env node
-
-/**
- * Neon Project Setup Script
- * Automates the creation of Neon project and branches for Local Lens
- */
-
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
